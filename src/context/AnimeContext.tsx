@@ -87,7 +87,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
     const { user } = useAuth();
 
     // Cache reader (defined early so useState initializers can use it)
-    const HOME_CACHE_PREFIX = 'yorumi_home_cache_v6';
+    const HOME_CACHE_PREFIX = 'yorumi_home_cache_v13';
     const readHomeCache = <T,>(key: string, ttlMs: number): T | null => {
         try {
             const raw = localStorage.getItem(`${HOME_CACHE_PREFIX}:${key}`);
@@ -424,13 +424,30 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
         return Boolean(title || artwork);
     };
 
+    const preserveFreshnessHint = (target: Anime, hint: Partial<Anime> | null | undefined): Anime => {
+        if (!hint) return target;
+        const nextAnime = { ...target };
+        const hintedLatest = Number(hint.latestEpisode || 0);
+        const currentLatest = Number(nextAnime.latestEpisode || 0);
+        if (hintedLatest > currentLatest) {
+            nextAnime.latestEpisode = hintedLatest;
+        }
+
+        const hintedScraperId = extractDirectScraperSession(hint.scraperId);
+        if (isAnimePaheSessionId(hintedScraperId)) {
+            nextAnime.scraperId = hintedScraperId;
+        }
+
+        return nextAnime;
+    };
+
     const hydrateFastDetails = (fastData: any, fallbackAnime: Anime): Anime => {
         const hydratedAnime = (fastData?.data ? { ...fallbackAnime, ...fastData.data } : { ...fallbackAnime }) as Anime;
         const fastSession = String(fastData?.scraperSession || '').trim();
         if (isAnimePaheSessionId(fastSession)) {
             hydratedAnime.scraperId = fastSession;
         }
-        return hydratedAnime;
+        return preserveFreshnessHint(hydratedAnime, fallbackAnime);
     };
 
     const applyHydratedEpisodes = (targetAnime: Anime, fastData: any) => {
@@ -441,6 +458,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
         const normalizedFastEpisodes = normalizeEpisodesList(fastData.episodes);
         const nextEpisodes = trimEpisodesForAnime(targetAnime, normalizedFastEpisodes);
         if (nextEpisodes.length === 0) return false;
+        if (!hasEnoughEpisodes(targetAnime, nextEpisodes)) return false;
 
         setEpisodes(nextEpisodes);
         setScraperSession(session);
@@ -1462,10 +1480,11 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
             if (isStaleRequest()) return;
 
             if (detailsData?.data) {
-                currentAnime = detailsData.data;
+                currentAnime = preserveFreshnessHint(detailsData.data, currentAnime);
                 if (detailsId && String(detailsId).startsWith('s:')) {
                     if ((detailsData.data as any).scraperId) currentAnime.scraperId = (detailsData.data as any).scraperId;
                 }
+                currentAnime = preserveFreshnessHint(currentAnime, anime);
                 setSelectedAnime(currentAnime);
             } else {
                 let found = false;

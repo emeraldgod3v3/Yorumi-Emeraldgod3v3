@@ -37,7 +37,21 @@ router.get('/details/:mangaId', async (req: Request, res: Response) => {
             return;
         }
 
+        const includeChapters = ['1', 'true', 'yes'].includes(String(req.query.includeChapters || '').toLowerCase());
+
+        if (includeChapters) {
+            const payload = await mangaService.getMangaDetailsWithChapters(mangaId);
+            res.set('Cache-Control', 'public, max-age=60, s-maxage=180, stale-while-revalidate=600');
+            res.json({
+                data: payload.details,
+                chapters: payload.chapters,
+                scraperId: payload.scraperId,
+            });
+            return;
+        }
+
         const details = await mangaService.getMangaDetails(mangaId);
+        res.set('Cache-Control', 'public, max-age=60, s-maxage=180, stale-while-revalidate=600');
         res.json({ data: details });
     } catch (error) {
         console.error('Manga details error:', error);

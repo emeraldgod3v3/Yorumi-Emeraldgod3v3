@@ -236,6 +236,8 @@ const mapLatestUpdateItemToAnime = (item: any): Anime => {
         extractAniKaiScraperId(item.link) ||
         extractAniKaiScraperId(String(anime.scraperId || ''));
     const animePaheSession =
+        extractAnimePaheSession(item.animePaheSession) ||
+        extractAnimePaheSession(item.animepaheSession) ||
         extractAnimePaheSession(genericScraperId) ||
         extractAnimePaheSession(extractScraperIdFromLink(item.link)) ||
         extractAnimePaheSession(anime.scraperId);
@@ -455,7 +457,7 @@ export const animeService = {
     },
 
     async getHomeFastData() {
-        const cacheKey = 'home-fast-data-v6';
+        const cacheKey = 'home-fast-data-v13';
         const cached = getCached(cacheKey, DETAIL_CACHE_TTL);
         if (cached) return cached;
 
@@ -476,7 +478,7 @@ export const animeService = {
                         const anime = item?.anilist
                             ? (mapAnilistToAnime(item.anilist) as Anime)
                             : (mapScraperToAnime(item) as Anime);
-                        if (item.banner) anime.anilist_banner_image = item.banner;
+                        anime.anilist_banner_image = item.banner || anime.anilist_banner_image;
                         if (item.poster) {
                             const posterUrl = getDisplayImageUrl(item.poster);
                             anime.images.jpg.image_url = posterUrl;
@@ -534,7 +536,7 @@ export const animeService = {
     },
 
     async getLatestUpdates(): Promise<LatestUpdatesResult> {
-        const cacheKey = 'latest-updates-4-10';
+        const cacheKey = 'animepahe-card-latest-updates-v1';
         const cached = getCached(cacheKey, DETAIL_CACHE_TTL);
         if (cached) return cached;
         const staleCached = getStaleCached(cacheKey);
@@ -577,7 +579,7 @@ export const animeService = {
     },
 
     async getLatestUpdatesPage(page: number = 1, limit: number = 18): Promise<LatestUpdatesPageResult> {
-        const cacheKey = `animekai-latest-updates-page-v2-${page}-${limit}`;
+        const cacheKey = `animepahe-card-latest-updates-page-v1-${page}-${limit}`;
         const cached = getCached(cacheKey, DETAIL_CACHE_TTL);
         if (cached) return cached;
         const staleCached = getStaleCached(cacheKey);
@@ -739,7 +741,7 @@ export const animeService = {
     // Get A-Z List from AnimeKai scraper
     async getAZList(letter: string, page: number = 1) {
         const normalizedLetter = normalizeAZListLetter(letter);
-        const cacheKey = `animekai-az-list:${normalizedLetter}:${page}`;
+        const cacheKey = `reanime-az-list:${normalizedLetter}:${page}`;
         const cached = getCached(cacheKey, AZ_LIST_CACHE_TTL);
         if (cached) return cached;
 
@@ -815,7 +817,7 @@ export const animeService = {
     },
 
     async getAnimeKaiGenres() {
-        const cacheKey = 'animekai-genres-v1';
+        const cacheKey = 'reanime-genres-v1';
         const cached = getCached(cacheKey, ANIMEKAI_GENRES_CACHE_TTL);
         if (cached) return cached;
 
@@ -855,7 +857,7 @@ export const animeService = {
 
     async getAnimeKaiGenrePage(genre: string, page: number = 1, limit: number = 24) {
         const normalizedGenre = String(genre || '').trim();
-        const cacheKey = `animekai-genre-page:${normalizedGenre.toLowerCase()}:${page}:${limit}`;
+        const cacheKey = `reanime-genre-page:${normalizedGenre.toLowerCase()}:${page}:${limit}`;
         const cached = getCached(cacheKey, ANIMEKAI_GENRE_PAGE_CACHE_TTL);
         if (cached) return cached;
 
@@ -1027,7 +1029,7 @@ export const animeService = {
 
     async searchAnimeKai(title: string) {
         const normalizedTitle = title.trim().toLowerCase();
-        const cacheKey = `animekai-search:${normalizedTitle}`;
+        const cacheKey = `reanime-search:${normalizedTitle}`;
         const cached = getCached(cacheKey, SCRAPER_SEARCH_TTL);
         if (cached) return cached;
         if (inFlightRequests.has(cacheKey)) {
@@ -1094,8 +1096,8 @@ export const animeService = {
 
     // Get episodes from scraper. Backend/Redis is the primary cache layer.
     async getEpisodes(session: string, options?: { expectedEpisodes?: number }) {
-        const cacheKey = `episodes:v5:${session}`;
         const expectedEpisodes = Number(options?.expectedEpisodes || 0);
+        const cacheKey = `episodes:v6:${session}:${expectedEpisodes > 0 ? `min-${expectedEpisodes}` : 'any'}`;
         const hasEnoughEpisodes = (payload: any) => {
             const episodes = Array.isArray(payload?.episodes) ? payload.episodes : [];
             if (episodes.length === 0) return false;
@@ -1132,7 +1134,10 @@ export const animeService = {
 
         const fetchFromBackend = async () => {
             const { data } = await apiClient.get('/scraper/episodes', {
-                params: { session },
+                params: {
+                    session,
+                    ...(expectedEpisodes > 0 ? { expectedEpisodes } : {}),
+                },
             });
 
             if (data?.episodes && Array.isArray(data.episodes) && data.episodes.length > 0) {
@@ -1359,7 +1364,7 @@ export const animeService = {
 
     // Get AnimeKai Top Trending for the home sidebar.
     async getAnimeKaiTopTrending(range: 'now' | 'week' | 'month') {
-        const cacheKey = `animekai-top-trending-v3-${range}`;
+        const cacheKey = `reanime-top-trending-v1-${range}`;
         const cached = getCached(cacheKey, DETAIL_CACHE_TTL);
         if (cached) return cached;
 
@@ -1421,9 +1426,7 @@ export const animeService = {
                     : mapScraperToAnime(item)) as Anime;
 
                 // Override images with AnimeKai hero art when available.
-                if (item.banner) {
-                    anime.anilist_banner_image = item.banner;
-                }
+                anime.anilist_banner_image = item.banner || anime.anilist_banner_image;
                 if (item.poster) {
                     const posterUrl = getDisplayImageUrl(item.poster);
                     anime.images.jpg.image_url = posterUrl;

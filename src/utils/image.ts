@@ -6,6 +6,7 @@ const PROXY_HOST_PATTERNS = [
     /(^|\.)pahe\./i,
     /(^|\.)animekai\./i,
     /(^|\.)anikai\./i,
+    /(^|\.)mangakatana\./i,
     /(^|\.)gojo\./i,
     /(^|\.)akamaized\.net$/i,
 ];

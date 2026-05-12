@@ -1,17 +1,17 @@
 import { AnimePaheScraper } from '../../scraper/animepahe';
-import { AnimeKaiScraper } from '../../scraper/animekai';
+import { ReAnimeScraper } from '../../scraper/reanime';
 import { acquireLock, cacheGet, cacheSet, releaseLock } from '../../utils/redis-cache';
 
 export class ScraperService {
     private fastScraper: AnimePaheScraper;
-    private animeKaiScraper: AnimeKaiScraper;
+    private reAnimeScraper: ReAnimeScraper;
     private cache = new Map<string, { expiresAt: number; value: any }>();
     private inFlight = new Map<string, Promise<any>>();
     private hotStreamKeys = new Map<string, { animeSession: string; epSession: string; hits: number; lastAccess: number }>();
 
     constructor() {
         this.fastScraper = new AnimePaheScraper();
-        this.animeKaiScraper = new AnimeKaiScraper();
+        this.reAnimeScraper = new ReAnimeScraper();
     }
 
     private isAnimePaheSession(session: string) {
@@ -20,6 +20,87 @@ export class ScraperService {
 
     private normalizeTitle(value: unknown) {
         return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    }
+
+    private buildAnimePaheLookupQueries(item: any) {
+        const queries = new Set<string>();
+        const add = (value: unknown) => {
+            const normalized = String(value || '').replace(/\s+/g, ' ').trim();
+            if (normalized) queries.add(normalized);
+        };
+
+        add(item?.title);
+        add(item?.jname);
+        add(item?.anilist?.title?.english);
+        add(item?.anilist?.title?.romaji);
+        add(item?.anilist?.title?.native);
+        (Array.isArray(item?.anilist?.synonyms) ? item.anilist.synonyms : []).slice(0, 3).forEach(add);
+
+        return Array.from(queries).slice(0, 4);
+    }
+
+    private scoreAnimePaheCandidateForItem(item: any, candidate: any) {
+        const candidateTitle = this.normalizeTitle(candidate?.title);
+        if (!candidateTitle) return 0;
+
+        const titleScore = this.buildAnimePaheLookupQueries(item).reduce((best, title) => {
+            const targetTitle = this.normalizeTitle(title);
+            if (!targetTitle || targetTitle.length < 4) return best;
+            if (candidateTitle === targetTitle) return Math.max(best, 120);
+            if (candidateTitle.includes(targetTitle) || targetTitle.includes(candidateTitle)) return Math.max(best, 80);
+            return best;
+        }, 0);
+        if (titleScore <= 0) return 0;
+
+        let score = titleScore;
+        const expectedEpisodes = Number(item?.latestEpisode || item?.sub || item?.episodes || item?.anilist?.episodes || 0);
+        const candidateEpisodes = Number(candidate?.episodes || 0);
+        if (expectedEpisodes > 0 && candidateEpisodes > 0) {
+            const diff = Math.abs(candidateEpisodes - expectedEpisodes);
+            if (diff === 0) score += 30;
+            else if (diff <= 1) score += 18;
+            else if (diff <= 3) score += 8;
+            else score -= 20;
+        }
+
+        const expectedYear = Number(item?.year || item?.anilist?.seasonYear || item?.anilist?.startDate?.year || 0);
+        const candidateYear = Number(candidate?.year || 0);
+        if (expectedYear > 0 && candidateYear > 0) {
+            const diff = Math.abs(candidateYear - expectedYear);
+            if (diff === 0) score += 8;
+            else if (diff > 1) score -= 12;
+        }
+
+        return score;
+    }
+
+    private findLatestReleaseForItem(item: any, latestReleases: any[]) {
+        const itemTitles = this.buildAnimePaheLookupQueries(item)
+            .map((title) => this.normalizeTitle(title))
+            .filter((title) => title.length >= 4);
+        if (itemTitles.length === 0) return null;
+
+        const itemSession = String(item?.animePaheSession || item?.animepaheSession || '').trim();
+        const ranked = (Array.isArray(latestReleases) ? latestReleases : [])
+            .map((release) => {
+                const releaseTitle = this.normalizeTitle(release?.title);
+                const releaseSession = String(release?.animeSession || release?.session || '').trim();
+                if (!releaseTitle) return { release, score: 0 };
+
+                let score = itemTitles.reduce((best, title) => {
+                    if (releaseTitle === title) return Math.max(best, 120);
+                    if (releaseTitle.includes(title) || title.includes(releaseTitle)) return Math.max(best, 80);
+                    return best;
+                }, 0);
+
+                if (itemSession && releaseSession && itemSession === releaseSession) score += 80;
+
+                return { release, score };
+            })
+            .filter((entry) => entry.score > 0 && Number(entry.release?.episodeNumber || 0) > 0)
+            .sort((a, b) => b.score - a.score);
+
+        return ranked[0]?.release || null;
     }
 
     private queryFromSessionSlug(value: unknown) {
@@ -259,7 +340,7 @@ export class ScraperService {
             };
             const [animePahe, animeKai] = await Promise.all([
                 withTimeout(this.fastScraper.search(query), 7000, []),
-                withTimeout(this.animeKaiScraper.search(query), 7000, []),
+                withTimeout(this.reAnimeScraper.search(query), 7000, []),
             ]);
             const seen = new Set<string>();
             const merged: any[] = [];
@@ -302,10 +383,10 @@ export class ScraperService {
     async searchAnimeKai(query: string) {
         const normalized = query.toLowerCase().trim();
         return this.getOrLoad(
-            `search:animekai:v1:${normalized}`,
+            `search:reanime:v1:${normalized}`,
             5 * 60 * 1000,
             async () => {
-                const results = await this.animeKaiScraper.search(query);
+                const results = await this.reAnimeScraper.search(query);
                 return Array.isArray(results)
                     ? results.filter((item: any) => String(item?.session || '').trim())
                     : [];
@@ -317,11 +398,154 @@ export class ScraperService {
         );
     }
 
-    async getEpisodes(session: string) {
+    async attachAnimePaheSessions<T extends Record<string, any>>(items: T[], timeoutMs: number = 2500): Promise<T[]> {
+        const safeItems = Array.isArray(items) ? items : [];
+        if (safeItems.length === 0) return [];
+
+        const attachTask = (async () => {
+            const latestReleases = await this.getAnimePaheLatestReleases(1)
+                .then((result) => Array.isArray(result?.data) ? result.data : [])
+                .catch(() => []);
+
+            const results = await Promise.allSettled(safeItems.map(async (item) => {
+                const existingSession = String(item?.animePaheSession || item?.animepaheSession || item?.scraperId || item?.session || '').trim();
+                const latestMatch = this.findLatestReleaseForItem(item, latestReleases);
+                const latestEpisode = Number(latestMatch?.episodeNumber || 0);
+
+                if (this.isAnimePaheSession(existingSession)) {
+                    return latestEpisode > 0
+                        ? { ...item, animePaheSession: existingSession, latestEpisode, sub: latestEpisode }
+                        : { ...item, animePaheSession: existingSession };
+                }
+
+                const queries = this.buildAnimePaheLookupQueries(item);
+                if (queries.length === 0) {
+                    return latestEpisode > 0 ? { ...item, latestEpisode, sub: latestEpisode } : item;
+                }
+
+                const resultSets = await Promise.all(
+                    queries.map((query) => this.searchAnimePahe(query).catch(() => []))
+                );
+                const candidateMap = new Map<string, any>();
+                resultSets.flat().forEach((candidate: any) => {
+                    const session = String(candidate?.session || '').trim();
+                    if (this.isAnimePaheSession(session) && !candidateMap.has(session)) {
+                        candidateMap.set(session, candidate);
+                    }
+                });
+
+                const best = [...candidateMap.values()]
+                    .map((candidate) => ({
+                        candidate,
+                        score: this.scoreAnimePaheCandidateForItem(item, candidate),
+                    }))
+                    .filter((entry) => entry.score > 0)
+                    .sort((a, b) => b.score - a.score)[0];
+
+                const animePaheSession = String(best?.candidate?.session || latestMatch?.animeSession || latestMatch?.session || '').trim();
+                const withLatest = latestEpisode > 0 ? { ...item, latestEpisode, sub: latestEpisode } : item;
+                return this.isAnimePaheSession(animePaheSession)
+                    ? { ...withLatest, animePaheSession }
+                    : withLatest;
+            }));
+
+            return results.map((result, index) =>
+                result.status === 'fulfilled' ? result.value : safeItems[index]
+            );
+        })();
+
+        return Promise.race([
+            attachTask,
+            new Promise<T[]>((resolve) => setTimeout(() => resolve(safeItems), timeoutMs)),
+        ]);
+    }
+
+    async getAnimePaheLatestReleases(page: number = 1) {
+        const safePage = Math.max(1, Math.floor(Number(page) || 1));
+        return this.getOrLoad(
+            `animepahe:latest-releases:v1:${safePage}`,
+            5 * 60 * 1000,
+            async () => this.fastScraper.getLatestReleases(safePage),
+            {
+                shouldCache: (value) => Array.isArray((value as any)?.data) && (value as any).data.length > 0,
+                allowCached: (value) => Array.isArray((value as any)?.data) && (value as any).data.length > 0,
+            }
+        );
+    }
+
+    async getAnimePaheLatestUpdates(page: number = 1, limit?: number) {
+        const safePage = Math.max(1, Math.floor(Number(page) || 1));
+        const safeLimit = Math.max(1, Math.floor(Number(limit || 0)) || 0);
+        const cacheKey = `animepahe:latest-updates:v1:${safePage}:${safeLimit || 'all'}`;
+
+        return this.getOrLoad(
+            cacheKey,
+            5 * 60 * 1000,
+            async () => {
+                const latest = await this.getAnimePaheLatestReleases(safePage);
+                const rawItems = Array.isArray(latest?.data) ? latest.data : [];
+                const pageItems = safeLimit > 0 ? rawItems.slice(0, safeLimit) : rawItems;
+
+                const enrichedResults = await Promise.allSettled(pageItems.map(async (release: any) => {
+                    const releaseSession = String(release?.animeSession || release?.session || '').trim();
+                    const candidates = await this.searchAnimePahe(String(release?.title || '')).catch(() => []);
+                    const best = (Array.isArray(candidates) ? candidates : []).find((candidate: any) =>
+                        String(candidate?.session || '').trim() === releaseSession
+                    ) || (Array.isArray(candidates) ? candidates[0] : null);
+
+                    const animeSession = this.isAnimePaheSession(releaseSession)
+                        ? releaseSession
+                        : String(best?.session || '').trim();
+                    const latestEpisode = Number(release?.episodeNumber || 0) || Number(best?.episodes || 0) || undefined;
+                    const poster = String(best?.poster || release?.snapshot || '').trim();
+
+                    return {
+                        id: animeSession || release?.id || release?.title,
+                        mal_id: 0,
+                        title: String(best?.title || release?.title || 'Unknown'),
+                        poster,
+                        image: poster,
+                        type: best?.type || 'TV',
+                        status: best?.status || 'RELEASING',
+                        episodes: Number(best?.episodes || 0) || latestEpisode || undefined,
+                        latestEpisode,
+                        sub: latestEpisode,
+                        year: best?.year,
+                        score: best?.score,
+                        link: release?.url || (animeSession ? `/anime/${animeSession}` : ''),
+                        scraperId: animeSession || undefined,
+                        session: animeSession || undefined,
+                        animePaheSession: animeSession || undefined,
+                        episodeSession: release?.episodeSession,
+                    };
+                }));
+
+                return {
+                    data: enrichedResults
+                        .map((result, index) => result.status === 'fulfilled' ? result.value : pageItems[index])
+                        .filter((item) => item?.title),
+                    pagination: latest?.pagination || {
+                        current_page: safePage,
+                        last_visible_page: safePage,
+                        has_next_page: false,
+                    },
+                };
+            },
+            {
+                shouldCache: (value) => Array.isArray((value as any)?.data) && (value as any).data.length > 0,
+                allowCached: (value) => Array.isArray((value as any)?.data) && (value as any).data.length > 0,
+            }
+        );
+    }
+
+    async getEpisodes(session: string, expectedEpisodes: number = 0) {
         const isCompleteEpisodePayload = (value: any) => {
             const episodes = Array.isArray(value?.episodes) ? value.episodes : [];
             const lastPage = Number(value?.lastPage || 1);
-            const minimumExpectedEpisodes = lastPage <= 1 ? 1 : ((Math.floor(lastPage) - 1) * 30) + 1;
+            const minimumExpectedEpisodes = Math.max(
+                Number(expectedEpisodes || 0),
+                lastPage <= 1 ? 1 : ((Math.floor(lastPage) - 1) * 30) + 1
+            );
             return episodes.length >= minimumExpectedEpisodes;
         };
         const waitForFullCache = async (timeoutMs: number) => {

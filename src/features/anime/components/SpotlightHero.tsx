@@ -76,11 +76,7 @@ const SpotlightHero: React.FC<SpotlightHeroProps> = ({ animeList, isLoading = fa
             <div className="absolute inset-0 overflow-hidden" ref={emblaRef}>
                 <div className="flex h-full touch-pan-y">
                     {animeList.map((anime, index) => {
-                        // Logic to choose the best landscape image
-                        const landscapeImage = anime.anilist_banner_image ??
-                            anime.trailer?.thumbnail ??
-                            anime.images?.jpg?.large_image_url ??
-                            anime.images?.jpg?.image_url;
+                        const landscapeImage = anime.anilist_banner_image;
                         const trailerSite = anime.trailer?.site?.toLowerCase();
                         const trailerId = anime.trailer?.id;
                         const isActive = index === selectedIndex;

@@ -7,6 +7,11 @@ import { API_BASE } from '../config/api';
 
 export type MangaViewMode = 'default' | 'popular_manhwa' | 'all_time_popular' | 'top_100';
 
+const getResolvedChapters = (manga: unknown): MangaChapter[] => {
+    const chapters = (manga as { resolvedChapters?: MangaChapter[] } | null)?.resolvedChapters;
+    return Array.isArray(chapters) ? chapters : [];
+};
+
 export function useManga() {
     const [topManga, setTopManga] = useState<Manga[]>([]);
     const [selectedManga, setSelectedManga] = useState<Manga | null>(null);
@@ -184,10 +189,11 @@ export function useManga() {
             if (!mangakatanaId && typeof manga.mal_id === 'number') {
                 try {
                     const unified = await mangaService.getUnifiedMangaDetails(manga.mal_id);
-                    if (unified && Array.isArray((unified as any).chapters) && (unified as any).chapters.length > 0) {
+                    const resolvedChapters = getResolvedChapters(unified);
+                    if (unified && resolvedChapters.length > 0) {
                         const cacheKey = `anilist:${manga.mal_id}`;
-                        mangaChaptersCache.current.set(cacheKey, (unified as any).chapters);
-                        setMangaChapters((unified as any).chapters);
+                        mangaChaptersCache.current.set(cacheKey, resolvedChapters);
+                        setMangaChapters(resolvedChapters);
                         setMangaChaptersLoading(false);
                         return;
                     }
@@ -719,6 +725,19 @@ export function useManga() {
             }
 
             setSelectedManga(data);
+
+            const hydratedChapters = getResolvedChapters(data);
+            if (hydratedChapters.length > 0) {
+                const hydratedKeys = [
+                    String(data.scraper_id || '').trim(),
+                    String(data.id || '').trim(),
+                    String(data.mal_id || '').trim(),
+                ].filter(Boolean);
+                hydratedKeys.forEach((key) => mangaChaptersCache.current.set(key, hydratedChapters));
+                setMangaChapters(hydratedChapters);
+                setMangaChaptersLoading(false);
+                return;
+            }
 
             const scraperId = String(data.scraper_id || '').trim()
                 || (typeof data.mal_id === 'string' ? String(data.mal_id).trim() : '')

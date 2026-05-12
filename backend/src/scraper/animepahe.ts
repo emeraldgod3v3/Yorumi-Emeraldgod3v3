@@ -31,6 +31,17 @@ export interface Episode {
     session: string;
 }
 
+export interface LatestRelease {
+    id: string;
+    title: string;
+    animeSession?: string;
+    episodeSession?: string;
+    episodeNumber: number;
+    snapshot?: string;
+    url: string;
+    session?: string;
+}
+
 export interface StreamLink {
     quality: string;
     audio: string;
@@ -148,6 +159,169 @@ export class AnimePaheScraper {
         }
 
         return [];
+    }
+
+    private mapLatestReleaseApiItems(items: any[]): LatestRelease[] {
+        return (Array.isArray(items) ? items : []).flatMap((item: any) => {
+            const title = String(item?.anime_title || item?.anime?.title || item?.title || '').trim();
+            const animeSession = String(item?.anime_session || item?.anime?.session || item?.animeSession || '').trim();
+            const episodeSession = String(item?.episode_session || item?.session || item?.episodeSession || '').trim();
+            const episodeNumber = Number(item?.episode || item?.episode_number || item?.episodeNumber || 0);
+            const snapshot = String(item?.snapshot || item?.image || item?.poster || '').trim();
+
+            if (!title || !Number.isFinite(episodeNumber) || episodeNumber <= 0) return [];
+
+            return [{
+                id: `${animeSession || title}:${episodeSession || episodeNumber}`,
+                title,
+                animeSession,
+                episodeSession,
+                session: animeSession || undefined,
+                episodeNumber,
+                snapshot: snapshot || undefined,
+                url: animeSession && episodeSession ? `/play/${animeSession}/${episodeSession}` : '',
+            }];
+        });
+    }
+
+    async getLatestReleases(pageNum: number = 1): Promise<{
+        data: LatestRelease[];
+        pagination: {
+            current_page: number;
+            last_visible_page: number;
+            has_next_page: boolean;
+        };
+    }> {
+        const safePage = Math.max(1, Math.floor(Number(pageNum) || 1));
+        const apiUrls = [
+            `${API_URL}?m=airing&page=${safePage}`,
+            `${API_URL}?m=latest&page=${safePage}`,
+            `${API_URL}?m=release&page=${safePage}&sort=episode_desc`,
+        ];
+
+        for (const url of apiUrls) {
+            const payload = await this.fetchApiJson(url);
+            const data = this.mapLatestReleaseApiItems(payload?.data);
+            if (data.length > 0) {
+                const lastPage = Number(payload?.last_page || payload?.lastPage || safePage) || safePage;
+                return {
+                    data,
+                    pagination: {
+                        current_page: Number(payload?.current_page || safePage) || safePage,
+                        last_visible_page: lastPage,
+                        has_next_page: Boolean(payload?.next_page_url) || safePage < lastPage,
+                    },
+                };
+            }
+        }
+
+        return this.getLatestReleasesFromHtml(safePage);
+    }
+
+    private async getLatestReleasesFromHtml(pageNum: number): Promise<{
+        data: LatestRelease[];
+        pagination: {
+            current_page: number;
+            last_visible_page: number;
+            has_next_page: boolean;
+        };
+    }> {
+        const pageUrl = `${BASE_URL}${pageNum > 1 ? `?page=${pageNum}` : ''}`;
+        const browser = await this.getBrowser();
+        const page = await browser.newPage();
+        await page.setUserAgent(this.requestHeaders['User-Agent']);
+
+        try {
+            await page.setRequestInterception(true);
+            page.on('request', (req) => {
+                const resourceType = req.resourceType();
+                if (['stylesheet', 'font', 'media'].includes(resourceType)) {
+                    req.abort();
+                } else {
+                    req.continue();
+                }
+            });
+
+            await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await this.waitForChallengeBypass(page, 30000);
+            const html = await page.content();
+            const $ = cheerio.load(String(html || ''));
+            const data: LatestRelease[] = [];
+            const seen = new Set<string>();
+
+            $('a[href^="/play/"], a[href*="/play/"]').each((_, element) => {
+                const $element = $(element);
+                const href = String($element.attr('href') || '').trim();
+                const hrefPath = href.replace(/^https?:\/\/[^/]+/i, '');
+                const parts = hrefPath.split(/[?#]/)[0].split('/').filter(Boolean);
+                const playIndex = parts.findIndex((part) => part.toLowerCase() === 'play');
+                const animeSession = playIndex >= 0 ? String(parts[playIndex + 1] || '').trim() : '';
+                const episodeSession = playIndex >= 0 ? String(parts[playIndex + 2] || '').trim() : '';
+                if (!animeSession || !episodeSession) return;
+
+                const image = $element.find('img').first();
+                const snapshot = String(
+                    image.attr('data-src') ||
+                    image.attr('data-original') ||
+                    image.attr('src') ||
+                    ''
+                ).trim();
+                const rawText = String($element.text() || image.attr('alt') || '').replace(/\s+/g, ' ').trim();
+                const episodeMatch = rawText.match(/(\d+(?:\.\d+)?)\s*$/);
+                const episodeNumber = Number(episodeMatch?.[1] || 0);
+                const title = rawText
+                    .replace(/(\d+(?:\.\d+)?)\s*$/, '')
+                    .replace(/^watch\s+/i, '')
+                    .trim() || String(image.attr('alt') || '').trim();
+
+                const key = `${animeSession}:${episodeSession}`;
+                if (!title || !Number.isFinite(episodeNumber) || episodeNumber <= 0 || seen.has(key)) return;
+                seen.add(key);
+
+                data.push({
+                    id: key,
+                    title,
+                    animeSession,
+                    episodeSession,
+                    session: animeSession,
+                    episodeNumber,
+                    snapshot: snapshot ? this.normalizePlayLinkUrl(snapshot) : undefined,
+                    url: `/play/${animeSession}/${episodeSession}`,
+                });
+            });
+
+            let lastPage = pageNum;
+            $('[href*="page="], [data-page]').each((_, element) => {
+                const href = String($(element).attr('href') || '').trim();
+                const dataPage = String($(element).attr('data-page') || '').trim();
+                const pageMatch = href.match(/[?&]page=(\d+)/i);
+                const pageValue = Number(pageMatch?.[1] || dataPage || 0);
+                if (Number.isFinite(pageValue) && pageValue > lastPage) {
+                    lastPage = Math.floor(pageValue);
+                }
+            });
+
+            return {
+                data,
+                pagination: {
+                    current_page: pageNum,
+                    last_visible_page: Math.max(1, lastPage),
+                    has_next_page: pageNum < lastPage,
+                },
+            };
+        } catch (error) {
+            console.error('Error getting AnimePahe latest releases:', error);
+            return {
+                data: [],
+                pagination: {
+                    current_page: pageNum,
+                    last_visible_page: pageNum,
+                    has_next_page: false,
+                },
+            };
+        } finally {
+            await page.close();
+        }
     }
 
     private parseAnimeInfoFromHtml(html: string): AnimeInfo | null {

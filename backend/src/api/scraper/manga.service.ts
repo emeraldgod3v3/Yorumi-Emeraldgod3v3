@@ -14,9 +14,22 @@ const SEARCH_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const CHAPTER_LIST_CACHE_KEY_PREFIX = 'manga:chapters:';
 const CHAPTER_PAGES_CACHE_KEY_PREFIX = 'manga:pages:';
 const SEARCH_CACHE_KEY_PREFIX = 'manga:search:';
+const HYDRATED_DETAILS_CACHE_KEY_PREFIX = 'manga:details-hydrated:';
 
 const hashKey = (input: string) => createHash('sha1').update(input).digest('hex');
 const MANGA_RESOLVE_CACHE_PREFIX = 'manga:resolve:';
+
+const hydratedDetailsCache = new Map<string, { data: HydratedMangaDetails; timestamp: number }>();
+const hydratedDetailsInFlight = new Map<string, Promise<HydratedMangaDetails>>();
+const HYDRATED_DETAILS_CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
+export interface HydratedMangaDetails {
+    details: any;
+    chapters: any[];
+    scraperId: string | null;
+}
+
+const stripMangaKatanaPrefix = (value: unknown) => String(value || '').trim().replace(/^mk:/i, '');
 
 const normalizeTitle = (value: string) =>
     String(value || '')
@@ -193,10 +206,74 @@ export async function getMangaDetails(id: string) {
 }
 
 /**
+ * Get details and readable MangaKatana chapters in one cached payload.
+ */
+export async function getMangaDetailsWithChapters(id: string): Promise<HydratedMangaDetails> {
+    const normalizedId = String(id || '').trim();
+    const cacheKey = normalizedId.toLowerCase();
+    const redisKey = `${HYDRATED_DETAILS_CACHE_KEY_PREFIX}${hashKey(cacheKey)}`;
+    const now = Date.now();
+
+    const cached = hydratedDetailsCache.get(cacheKey);
+    if (cached && now - cached.timestamp < HYDRATED_DETAILS_CACHE_TTL) {
+        console.log(`[Cache] Hydrated manga details hit: ${normalizedId}`);
+        return cached.data;
+    }
+
+    const redisCached = await cacheGet<HydratedMangaDetails>(redisKey).catch(() => null);
+    if (redisCached?.details) {
+        hydratedDetailsCache.set(cacheKey, { data: redisCached, timestamp: now });
+        console.log(`[Cache] Hydrated manga details hit (redis): ${normalizedId}`);
+        return redisCached;
+    }
+
+    const inFlight = hydratedDetailsInFlight.get(cacheKey);
+    if (inFlight) {
+        console.log(`[Cache] Waiting for in-flight hydrated manga details: ${normalizedId}`);
+        return inFlight;
+    }
+
+    const request = (async () => {
+        try {
+            const details = await getMangaDetails(normalizedId);
+            const isAniListShape = details?.title && typeof details.title === 'object';
+            const candidateScraperId = isAniListShape
+                ? details?.scraperId
+                : details?.scraperId || details?.id;
+            const scraperId = stripMangaKatanaPrefix(candidateScraperId);
+            const chapters = scraperId ? await getChapterList(scraperId).catch((error) => {
+                console.warn(`[getMangaDetailsWithChapters] Chapter hydration failed for ${scraperId}:`, error);
+                return [];
+            }) : [];
+
+            const payload: HydratedMangaDetails = {
+                details,
+                chapters,
+                scraperId: scraperId || null,
+            };
+
+            if (payload.details) {
+                hydratedDetailsCache.set(cacheKey, { data: payload, timestamp: Date.now() });
+                cacheSet(redisKey, payload, Math.ceil(HYDRATED_DETAILS_CACHE_TTL / 1000)).catch((error) => {
+                    console.warn(`[Cache] Redis write failed for hydrated manga details ${normalizedId}`, error);
+                });
+            }
+
+            return payload;
+        } finally {
+            hydratedDetailsInFlight.delete(cacheKey);
+        }
+    })();
+
+    hydratedDetailsInFlight.set(cacheKey, request);
+    return request;
+}
+
+/**
  * Get chapter list
  */
 export async function getChapterList(id: string) {
-    let realId = id.startsWith('mk:') ? id.replace('mk:', '') : id;
+    let realId = stripMangaKatanaPrefix(id);
     if (/^\d+$/.test(realId)) {
         const mapping = await mappingService.getMapping(realId).catch(() => null);
         if (mapping?.id) {

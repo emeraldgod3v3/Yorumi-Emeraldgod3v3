@@ -1,13 +1,14 @@
 import { Router } from 'express';
 import { anilistService } from './anilist.service';
 import { AnimePaheScraper } from '../../scraper/animepahe';
-import { AnimeKaiScraper } from '../../scraper/animekai';
+import { ReAnimeScraper } from '../../scraper/reanime';
 import { redis } from '../mapping/mapper';
 import { mappingService } from '../mapping/mapping.service';
 import { scraperService } from '../scraper/scraper.service';
+import { tmdbService } from '../scraper/tmdb.service';
 
 const router = Router();
-const HOME_FAST_CACHE_KEY = 'anilist:home:fast:v8';
+const HOME_FAST_CACHE_KEY = 'anilist:home:fast:v15';
 const HOME_FAST_TTL_SECONDS = 120;
 let homeFastMemoryCache: { data: any; timestamp: number } | null = null;
 let homeFastRefreshPromise: Promise<any> | null = null;
@@ -292,8 +293,42 @@ const buildAnimeKaiFallbackItems = (items: any[]) => {
     }));
 };
 
+const applyTmdbSpotlightBanners = async (items: any[]) => {
+    const safeItems = Array.isArray(items) ? items : [];
+    const results = await Promise.allSettled(
+        safeItems.map(async (item) => {
+            const banner = await tmdbService.resolveBackdrop({
+                titles: [
+                    item?.title,
+                    item?.jname,
+                    item?.anilist?.title?.english,
+                    item?.anilist?.title?.romaji,
+                    item?.anilist?.title?.native,
+                ],
+                year: item?.year || item?.anilist?.seasonYear || item?.anilist?.startDate?.year,
+                format: item?.type || item?.anilist?.format,
+            });
+
+            return {
+                ...item,
+                banner: banner || item?.banner || item?.anilist?.bannerImage || undefined,
+            };
+        })
+    );
+
+    return results.map((result, index) => result.status === 'fulfilled'
+        ? result.value
+        : safeItems[index]);
+};
+
+const clearSpotlightBanners = (items: any[]) =>
+    (Array.isArray(items) ? items : []).map((item) => ({
+        ...item,
+        banner: item?.banner || item?.anilist?.bannerImage || undefined,
+    }));
+
 const buildHomeFastPayload = async () => {
-    const animeKaiScraper = new AnimeKaiScraper();
+    const reAnimeScraper = new ReAnimeScraper();
     const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> => {
         try {
             return await Promise.race<T>([
@@ -306,27 +341,27 @@ const buildHomeFastPayload = async () => {
     };
     const [spotlight, latestEpisodesRaw, trending, seasonal, monthly, topAnime, topNow, topWeek, topMonth] = await Promise.all([
         withTimeout(
-            animeKaiScraper.getSpotlightAnime().then(async (items) => {
+            reAnimeScraper.getSpotlightAnime().then(async (items) => {
                 const rawItems = Array.isArray(items) ? items : [];
                 if (rawItems.length === 0) return [];
                 const rawSpotlight = buildAnimeKaiFallbackItems(rawItems);
-                return Promise.race([
+                const enriched = await Promise.race([
                     enrichAnimeKaiItems(rawItems),
                     new Promise<any[]>((resolve) => setTimeout(() => resolve(rawSpotlight), 2500)),
+                ]);
+                return Promise.race([
+                    applyTmdbSpotlightBanners(enriched),
+                    new Promise<any[]>((resolve) => setTimeout(() => resolve(clearSpotlightBanners(enriched)), 3500)),
                 ]);
             }),
             5000,
             [] as any[]
         ),
         withTimeout(
-            animeKaiScraper.getLatestUpdates().then((items) => {
-                const rawItems = Array.isArray(items) ? items : [];
-                return Promise.race([
-                    enrichAnimeKaiItems(rawItems),
-                    new Promise<any[]>((resolve) => setTimeout(() => resolve(buildAnimeKaiFallbackItems(rawItems)), 3500)),
-                ]);
-            }),
-            5000,
+            scraperService.getAnimePaheLatestUpdates(1, 10).then((result) =>
+                Array.isArray(result?.data) ? result.data : []
+            ),
+            6500,
             [] as any[]
         ),
         withTimeout(anilistService.getTrendingAnime(1, 10), 4000, { media: [] }),
@@ -334,7 +369,7 @@ const buildHomeFastPayload = async () => {
         withTimeout(anilistService.getPopularThisMonth(1, 10), 4000, { media: [] }),
         withTimeout(anilistService.getTopAnime(1, 18), 4000, { media: [], pageInfo: { lastPage: 1, currentPage: 1, hasNextPage: false } }),
         withTimeout(
-            animeKaiScraper.getTopTrending('now').then((items) => {
+            reAnimeScraper.getTopTrending('now').then((items) => {
                 const rawItems = Array.isArray(items) ? items : [];
                 return Promise.race([
                     enrichAnimeKaiItems(rawItems),
@@ -345,7 +380,7 @@ const buildHomeFastPayload = async () => {
             [] as any[]
         ),
         withTimeout(
-            animeKaiScraper.getTopTrending('week').then((items) => {
+            reAnimeScraper.getTopTrending('week').then((items) => {
                 const rawItems = Array.isArray(items) ? items : [];
                 return Promise.race([
                     enrichAnimeKaiItems(rawItems),
@@ -356,7 +391,7 @@ const buildHomeFastPayload = async () => {
             [] as any[]
         ),
         withTimeout(
-            animeKaiScraper.getTopTrending('month').then((items) => {
+            reAnimeScraper.getTopTrending('month').then((items) => {
                 const rawItems = Array.isArray(items) ? items : [];
                 return Promise.race([
                     enrichAnimeKaiItems(rawItems),
@@ -391,7 +426,7 @@ const refreshHomeFastCache = async () => {
         try {
             const payload = await buildHomeFastPayload();
             if (!Array.isArray(payload.spotlight) || payload.spotlight.length === 0) {
-                throw new Error('Home fast payload missing AnimeKai spotlight');
+                throw new Error('Home fast payload missing ReAnime spotlight');
             }
             homeFastMemoryCache = { data: payload, timestamp: Date.now() };
             await redis.set(HOME_FAST_CACHE_KEY, payload, { ex: HOME_FAST_TTL_SECONDS });
@@ -701,7 +736,7 @@ router.get('/anime/:id/fast', async (req, res) => {
             const genericScraperSession = !isAnimePaheSession(resolvedSession);
             const scraperDetails = isAnimePaheSession(resolvedSession)
                 ? await new AnimePaheScraper().getAnimeInfo(resolvedSession)
-                : await new AnimeKaiScraper().getAnimeInfo(resolvedSession);
+                : await new ReAnimeScraper().getAnimeInfo(resolvedSession);
 
             if (genericScraperSession) {
                 animeDetails = scraperDetails ? {
@@ -870,7 +905,7 @@ router.get('/anime/:id', async (req, res) => {
             const genericScraperSession = !isAnimePaheSession(scraperId);
             const scraperDetails = isAnimePaheSession(scraperId)
                 ? await new AnimePaheScraper().getAnimeInfo(scraperId)
-                : await new AnimeKaiScraper().getAnimeInfo(scraperId);
+                : await new ReAnimeScraper().getAnimeInfo(scraperId);
             if (!scraperDetails) {
                 return res.status(404).json({ error: 'Anime not found on scraper' });
             }

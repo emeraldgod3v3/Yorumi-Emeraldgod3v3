@@ -1,7 +1,8 @@
 // API Service for Manga operations - Using AniList
-import type { Manga } from '../types/manga';
+import type { Manga, MangaChapter } from '../types/manga';
 import axios from 'axios';
 import { API_BASE } from '../config/api';
+import { getDisplayImageUrl } from '../utils/image';
 const apiClient = axios.create({
     baseURL: API_BASE,
     timeout: 15000,
@@ -169,7 +170,9 @@ const pickScraperNativeTitle = (scraperData: ScraperManga) =>
     || scraperData.altNames?.find((name) => name.trim() !== scraperData.title)?.trim()
     || undefined;
 
-const mapScraperToManga = (scraperData: ScraperManga) => ({
+const mapScraperToManga = (scraperData: ScraperManga) => {
+    const image = getDisplayImageUrl(scraperData.coverImage || scraperData.thumbnail || '');
+    return ({
     mal_id: scraperData.id,
     id: scraperData.id,
     scraper_id: scraperData.id,
@@ -180,8 +183,8 @@ const mapScraperToManga = (scraperData: ScraperManga) => ({
     title_japanese: pickScraperNativeTitle(scraperData),
     images: {
         jpg: {
-            image_url: scraperData.coverImage || '',
-            large_image_url: scraperData.coverImage || ''
+            image_url: image,
+            large_image_url: image
         }
     },
     synopsis: scraperData.synopsis || 'No synopsis available from source.',
@@ -195,7 +198,8 @@ const mapScraperToManga = (scraperData: ScraperManga) => ({
     published: { from: '', to: '', string: '' },
     countryOfOrigin: 'JP',
     synonyms: scraperData.altNames || []
-});
+    });
+};
 
 interface ScraperManga {
     id: string;
@@ -212,6 +216,10 @@ interface ScraperManga {
     synopsis?: string;
     chapters?: any[];
 }
+
+type HydratedManga = Manga & {
+    resolvedChapters?: MangaChapter[];
+};
 
 export const mangaService = {
     peekUnifiedMangaDetails(id: string | number) {
@@ -489,32 +497,35 @@ export const mangaService = {
         const currentPage = Math.min(Math.max(page, 1), lastPage);
         const start = (currentPage - 1) * safeLimit;
         
-        const pageItems = resolvedItems.slice(start, start + safeLimit).map((item: ScraperManga) => ({
-            mal_id: item.id,
-            id: item.id,
-            scraper_id: item.id,
-            title: item.title || 'Unknown',
-            title_english: item.title,
-            title_romaji: item.title,
-            images: {
-                jpg: {
-                    image_url: item.thumbnail || item.coverImage || '',
-                    large_image_url: item.thumbnail || item.coverImage || ''
-                }
-            },
-            synopsis: '',
-            type: 'Manga',
-            chapters: 0,
-            volumes: 0,
-            score: 0,
-            status: 'Unknown',
-            genres: [],
-            authors: [],
-            published: { string: '' },
-            countryOfOrigin: 'JP',
-            latestChapter: item.latestChapter,
-            source: item.source || 'mangakatana'
-        }));
+        const pageItems = resolvedItems.slice(start, start + safeLimit).map((item: ScraperManga) => {
+            const image = getDisplayImageUrl(item.thumbnail || item.coverImage || '');
+            return {
+                mal_id: item.id,
+                id: item.id,
+                scraper_id: item.id,
+                title: item.title || 'Unknown',
+                title_english: item.title,
+                title_romaji: item.title,
+                images: {
+                    jpg: {
+                        image_url: image,
+                        large_image_url: image
+                    }
+                },
+                synopsis: '',
+                type: 'Manga',
+                chapters: 0,
+                volumes: 0,
+                score: 0,
+                status: 'Unknown',
+                genres: [],
+                authors: [],
+                published: { string: '' },
+                countryOfOrigin: 'JP',
+                latestChapter: item.latestChapter,
+                source: item.source || 'mangakatana'
+            };
+        });
 
         return {
             data: pageItems,
@@ -650,22 +661,42 @@ export const mangaService = {
             return inFlightRequests.get(cacheKey)!;
         }
 
-        const request = fetch(`${API_BASE}/manga/details/${encodeURIComponent(String(id))}`)
+        const request = fetch(`${API_BASE}/manga/details/${encodeURIComponent(String(id))}?includeChapters=1`)
             .then(async (res) => {
                 if (!res.ok) throw new Error(`Failed to fetch unified manga details (${res.status})`);
                 const json = await res.json();
                 const data = json.data;
                 if (!data) return null;
 
-                let mapped: Manga | null = null;
+                let mapped: HydratedManga | null = null;
 
                 if (data.title && typeof data.title === 'object') {
-                    mapped = mapAnilistToManga(data) as Manga;
+                    mapped = mapAnilistToManga(data) as HydratedManga;
                     if (typeof data.scraperId === 'string' && data.scraperId.trim()) {
                         mapped.scraper_id = data.scraperId.trim();
                     }
                 } else if (typeof data.title === 'string') {
-                    mapped = mapScraperToManga(data) as Manga;
+                    mapped = mapScraperToManga(data) as HydratedManga;
+                }
+
+                if (mapped && typeof json.scraperId === 'string' && json.scraperId.trim()) {
+                    mapped.scraper_id = mapped.scraper_id || json.scraperId.trim();
+                }
+
+                if (mapped && Array.isArray(json.chapters) && json.chapters.length > 0) {
+                    mapped.resolvedChapters = json.chapters;
+                    const chapterPayload = { chapters: json.chapters };
+                    [
+                        String(id),
+                        String(mapped.scraper_id || ''),
+                        String(mapped.id || ''),
+                        String(mapped.mal_id || ''),
+                    ]
+                        .map((key) => key.trim())
+                        .filter(Boolean)
+                        .forEach((key) => {
+                            chapterListCache.set(key, { data: chapterPayload, timestamp: Date.now() });
+                        });
                 }
 
                 if (mapped) {
