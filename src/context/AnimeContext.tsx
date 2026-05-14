@@ -87,7 +87,8 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
     const { user } = useAuth();
 
     // Cache reader (defined early so useState initializers can use it)
-    const HOME_CACHE_PREFIX = 'yorumi_home_cache_v13';
+    const HOME_CACHE_PREFIX = 'yorumi_home_cache_v15';
+    const HOME_LATEST_MIN_ITEMS = 10;
     const readHomeCache = <T,>(key: string, ttlMs: number): T | null => {
         try {
             const raw = localStorage.getItem(`${HOME_CACHE_PREFIX}:${key}`);
@@ -508,7 +509,9 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
             if (Array.isArray(fast?.latestUpdates) && fast.latestUpdates.length > 0) {
                 setLatestUpdates(fast.latestUpdates);
                 setLatestUpdatesLoading(false);
-                writeHomeCache('latest-updates', fast.latestUpdates);
+                if (fast.latestUpdates.length >= HOME_LATEST_MIN_ITEMS) {
+                    writeHomeCache('latest-updates', fast.latestUpdates);
+                }
                 preloadLogos(fast.latestUpdates.map((a: Anime) => a.id || a.mal_id).filter(Boolean));
                 applied = true;
             }
@@ -588,6 +591,8 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
         }
 
         const hasAnimeItems = (items: Anime[] | undefined | null) => Array.isArray(items) && items.length > 0;
+        const hasLatestItems = (items: Anime[] | undefined | null) =>
+            Array.isArray(items) && items.length >= HOME_LATEST_MIN_ITEMS;
         const hasTopTenItems = (fast: any) =>
             Array.isArray(fast?.topTenToday) && fast.topTenToday.length > 0
             && Array.isArray(fast?.topTenWeek) && fast.topTenWeek.length > 0
@@ -640,7 +645,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
                         }
                     } catch (e) {
                         if (delay === retryDelays[retryDelays.length - 1]) {
-                            console.error('Failed to fetch AnimeKai spotlight', e);
+                            console.error('Failed to fetch spotlight', e);
                         }
                     }
                 }
@@ -671,9 +676,9 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
         };
 
         const fetchLatestUpdates = async () => {
-            if (latestUpdates.length > 0) return;
+            if (latestUpdates.length >= HOME_LATEST_MIN_ITEMS) return;
             const cached = readHomeCache<Anime[]>('latest-updates', HOME_TTL.latestUpdates);
-            if (cached && cached.length > 0) {
+            if (cached && cached.length >= HOME_LATEST_MIN_ITEMS) {
                 setLatestUpdates(cached);
                 setLatestUpdatesLoading(false);
                 preloadLogos(cached.map((a: Anime) => a.id || a.mal_id).filter(Boolean));
@@ -684,7 +689,9 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
                 const latestData = await animeService.getLatestUpdates();
                 if (latestData?.data) {
                     setLatestUpdates(latestData.data);
-                    writeHomeCache('latest-updates', latestData.data);
+                    if (latestData.data.length >= HOME_LATEST_MIN_ITEMS) {
+                        writeHomeCache('latest-updates', latestData.data);
+                    }
                     preloadLogos(latestData.data.map((a: Anime) => a.id || a.mal_id).filter(Boolean));
                 }
             } catch (e) { console.error(e); }
@@ -742,9 +749,9 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
             }
             try {
                 const [day, week, month] = await Promise.all([
-                    animeService.getAnimeKaiTopTrending('now'),
-                    animeService.getAnimeKaiTopTrending('week'),
-                    animeService.getAnimeKaiTopTrending('month')
+                    animeService.getTrendingAnime(1, 10),
+                    animeService.getPopularThisSeason(1, 10),
+                    animeService.getPopularThisMonth(1, 10)
                 ]);
                 if (day?.data) setTopTenToday(day.data);
                 if (week?.data) setTopTenWeek(week.data);
@@ -761,7 +768,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
         if (!hasAnimeItems(fastBundle?.spotlightAnime)) {
             tasks.push(fetchSpotlight());
         }
-        if (!hasAnimeItems(fastBundle?.latestUpdates)) {
+        if (!hasLatestItems(fastBundle?.latestUpdates)) {
             tasks.push(fetchLatestUpdates());
         }
         if (!hasAnimeItems(fastBundle?.trendingAnime)) {

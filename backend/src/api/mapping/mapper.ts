@@ -23,6 +23,29 @@ const upstashRedis = hasRedisConfig
 
 const memoryStore = new Map<string, MemoryEntry>();
 const memoryHashStore = new Map<string, Map<string, unknown>>();
+let redisDisabledUntil = 0;
+let redisDisableNoticeShown = false;
+
+function isQuotaError(error: unknown) {
+    return String((error as any)?.message || error).toLowerCase().includes('max requests limit exceeded');
+}
+
+function getRedisClient() {
+    return Date.now() >= redisDisabledUntil ? upstashRedis : null;
+}
+
+function handleRedisError(operation: string, key: string, error: unknown) {
+    if (isQuotaError(error)) {
+        redisDisabledUntil = Date.now() + 60 * 60 * 1000;
+        if (!redisDisableNoticeShown) {
+            console.warn(`[redis] Upstash request quota exhausted; using in-memory cache for the next hour.`);
+            redisDisableNoticeShown = true;
+        }
+        return;
+    }
+
+    console.warn(`[redis] ${operation} failed for "${key}", using memory fallback`, error);
+}
 
 function getTtlMs(options?: Record<string, unknown>) {
     const ex = Number(options?.ex);
@@ -51,21 +74,23 @@ function setMemoryValue(key: string, value: unknown, options?: Record<string, un
 
 const redis: RedisLike = {
     async get<T>(key: string) {
-        if (upstashRedis) {
+        const client = getRedisClient();
+        if (client) {
             try {
-                return await upstashRedis.get<T>(key);
+                return await client.get<T>(key);
             } catch (error) {
-                console.warn(`[redis] Read failed for "${key}", using memory fallback`, error);
+                handleRedisError('Read', key, error);
             }
         }
         return getMemoryValue<T>(key);
     },
     async set(key: string, value: unknown, options?: Record<string, unknown>) {
-        if (upstashRedis) {
+        const client = getRedisClient();
+        if (client) {
             try {
-                return await upstashRedis.set(key, value, options);
+                return await client.set(key, value, options);
             } catch (error) {
-                console.warn(`[redis] Write failed for "${key}", using memory fallback`, error);
+                handleRedisError('Write', key, error);
             }
         }
         return setMemoryValue(key, value, options);
@@ -73,31 +98,34 @@ const redis: RedisLike = {
     async del(key: string) {
         memoryStore.delete(key);
         memoryHashStore.delete(key);
-        if (upstashRedis) {
+        const client = getRedisClient();
+        if (client) {
             try {
-                return await upstashRedis.del(key);
+                return await client.del(key);
             } catch (error) {
-                console.warn(`[redis] Delete failed for "${key}"`, error);
+                handleRedisError('Delete', key, error);
             }
         }
         return null;
     },
     async hget<T>(key: string, field: string) {
-        if (upstashRedis) {
+        const client = getRedisClient();
+        if (client) {
             try {
-                return await upstashRedis.hget<T>(key, field);
+                return await client.hget<T>(key, field);
             } catch (error) {
-                console.warn(`[redis] Hash read failed for "${key}.${field}", using memory fallback`, error);
+                handleRedisError('Hash read', `${key}.${field}`, error);
             }
         }
         return (memoryHashStore.get(key)?.get(field) as T | undefined) ?? null;
     },
     async hset(key: string, value: Record<string, unknown>) {
-        if (upstashRedis) {
+        const client = getRedisClient();
+        if (client) {
             try {
-                return await upstashRedis.hset(key, value);
+                return await client.hset(key, value);
             } catch (error) {
-                console.warn(`[redis] Hash write failed for "${key}", using memory fallback`, error);
+                handleRedisError('Hash write', key, error);
             }
         }
         const hash = memoryHashStore.get(key) ?? new Map<string, unknown>();

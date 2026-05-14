@@ -486,44 +486,33 @@ export class ScraperService {
                 const rawItems = Array.isArray(latest?.data) ? latest.data : [];
                 const pageItems = safeLimit > 0 ? rawItems.slice(0, safeLimit) : rawItems;
 
-                const enrichedResults = await Promise.allSettled(pageItems.map(async (release: any) => {
+                const data = pageItems.map((release: any) => {
                     const releaseSession = String(release?.animeSession || release?.session || '').trim();
-                    const candidates = await this.searchAnimePahe(String(release?.title || '')).catch(() => []);
-                    const best = (Array.isArray(candidates) ? candidates : []).find((candidate: any) =>
-                        String(candidate?.session || '').trim() === releaseSession
-                    ) || (Array.isArray(candidates) ? candidates[0] : null);
-
-                    const animeSession = this.isAnimePaheSession(releaseSession)
-                        ? releaseSession
-                        : String(best?.session || '').trim();
-                    const latestEpisode = Number(release?.episodeNumber || 0) || Number(best?.episodes || 0) || undefined;
-                    const poster = String(best?.poster || release?.snapshot || '').trim();
+                    const animeSession = this.isAnimePaheSession(releaseSession) ? releaseSession : '';
+                    const latestEpisode = Number(release?.episodeNumber || 0) || undefined;
+                    const poster = String(release?.snapshot || '').trim();
 
                     return {
                         id: animeSession || release?.id || release?.title,
                         mal_id: 0,
-                        title: String(best?.title || release?.title || 'Unknown'),
+                        title: String(release?.title || 'Unknown'),
                         poster,
                         image: poster,
-                        type: best?.type || 'TV',
-                        status: best?.status || 'RELEASING',
-                        episodes: Number(best?.episodes || 0) || latestEpisode || undefined,
+                        type: 'TV',
+                        status: 'RELEASING',
+                        episodes: latestEpisode,
                         latestEpisode,
                         sub: latestEpisode,
-                        year: best?.year,
-                        score: best?.score,
                         link: release?.url || (animeSession ? `/anime/${animeSession}` : ''),
                         scraperId: animeSession || undefined,
                         session: animeSession || undefined,
                         animePaheSession: animeSession || undefined,
                         episodeSession: release?.episodeSession,
                     };
-                }));
+                }).filter((item) => item?.title);
 
                 return {
-                    data: enrichedResults
-                        .map((result, index) => result.status === 'fulfilled' ? result.value : pageItems[index])
-                        .filter((item) => item?.title),
+                    data,
                     pagination: latest?.pagination || {
                         current_page: safePage,
                         last_visible_page: safePage,

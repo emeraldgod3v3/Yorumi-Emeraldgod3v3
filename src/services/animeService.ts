@@ -291,8 +291,6 @@ const mappingCache = new Map<string, string>();
 const scraperSearchCache = new Map<string, { data: any[]; timestamp: number }>();
 const SCRAPER_SEARCH_TTL = 5 * 60 * 1000;
 const AZ_LIST_CACHE_TTL = 10 * 60 * 1000;
-const ANIMEKAI_GENRES_CACHE_TTL = 12 * 60 * 60 * 1000;
-const ANIMEKAI_GENRE_PAGE_CACHE_TTL = 10 * 60 * 1000;
 const PERSISTED_CACHE_PREFIX = 'yorumi_api_cache_v6';
 const STREAM_CACHE_VERSION = 'v4';
 const PERSISTED_STREAM_CACHE_PREFIX = `yorumi_stream_cache_${STREAM_CACHE_VERSION}`;
@@ -547,15 +545,15 @@ export const animeService = {
 
         const fetchPromise: Promise<LatestUpdatesResult> = (async () => {
             try {
-                const res = await fetchJsonWithTimeout(`${API_BASE}/scraper/animekai/latest-updates`, {}, 10000);
+                const res = await fetchJsonWithTimeout(`${API_BASE}/scraper/recently-updated?page=1&limit=10`, {}, 3500);
                 if (!res.ok) {
                     throw new Error(`Failed to fetch latest updates: ${res.statusText}`);
                 }
 
                 const payload = await res.json();
                 const result: LatestUpdatesResult = {
-                    data: Array.isArray(payload?.latestEpisodes)
-                        ? payload.latestEpisodes.map(mapLatestUpdateItemToAnime)
+                    data: Array.isArray(payload?.data)
+                        ? payload.data.map(mapLatestUpdateItemToAnime)
                         : []
                 };
 
@@ -591,9 +589,9 @@ export const animeService = {
         const fetchPromise: Promise<LatestUpdatesPageResult> = (async () => {
             try {
                 const res = await fetchJsonWithTimeout(
-                    `${API_BASE}/scraper/animekai/new-releases?page=${page}&limit=${limit}`,
+                    `${API_BASE}/scraper/recently-updated?page=${page}&limit=${limit}`,
                     {},
-                    7000
+                    4000
                 );
                 if (!res.ok) {
                     throw new Error(`Failed to fetch latest updates page: ${res.statusText}`);
@@ -738,10 +736,10 @@ export const animeService = {
         };
     },
 
-    // Get A-Z List from AnimeKai scraper
+    // Get A-Z List from AniList.
     async getAZList(letter: string, page: number = 1) {
         const normalizedLetter = normalizeAZListLetter(letter);
-        const cacheKey = `reanime-az-list:${normalizedLetter}:${page}`;
+        const cacheKey = `anilist-az-list:${normalizedLetter}:${page}`;
         const cached = getCached(cacheKey, AZ_LIST_CACHE_TTL);
         if (cached) return cached;
 
@@ -751,45 +749,24 @@ export const animeService = {
 
         const fetchPromise = (async () => {
             try {
-                const res = await fetch(`${API_BASE}/scraper/animekai/az-list/${encodeURIComponent(normalizedLetter)}?page=${page}`);
+                const isBroadPage = normalizedLetter === 'All' || normalizedLetter === '#' || normalizedLetter === '0-9';
+                const endpoint = isBroadPage
+                    ? `${API_BASE}/anilist/top?page=${page}&limit=24`
+                    : `${API_BASE}/anilist/search?q=${encodeURIComponent(normalizedLetter)}&page=${page}&limit=24`;
+                const res = await fetch(endpoint);
                 if (!res.ok) {
                     throw new Error(`Failed to fetch A-Z list: ${res.statusText}`);
                 }
-                const data = await res.json();
+                const payload = await res.json();
+                const media = Array.isArray(payload?.media) ? payload.media : [];
 
                 const result = {
-                    data: data.data?.map((item: any) => ({
-                        mal_id: 0,
-                        id: 0,
-                        scraperId: item.scraperId || item.id,
-                        title: item.title,
-                        images: {
-                            jpg: {
-                                image_url: getDisplayImageUrl(item.poster),
-                                large_image_url: getDisplayImageUrl(item.poster)
-                            }
-                        },
-                        type: item.type,
-                        type_display: item.type,
-                        score: 0,
-                        status: 'Unknown',
-                        episodes: null,
-                        duration: null,
-                        rating: null,
-                        genres: [],
-                        synopsis: '',
-                        season: null,
-                        year: null,
-                        aired: { string: '' },
-                        studios: [],
-                        members: 0,
-                        rank: 0,
-                        popularity: 0,
-                        favorites: 0,
-                        source: 'Scraper',
-                        is_scraped: true
-                    })) || [],
-                    pagination: data.pagination
+                    data: media.map(mapAnilistToAnime),
+                    pagination: {
+                        last_visible_page: payload?.pageInfo?.lastPage || page,
+                        current_page: payload?.pageInfo?.currentPage || page,
+                        has_next_page: payload?.pageInfo?.hasNextPage || false,
+                    }
                 };
 
                 if (result.data.length > 0) {
@@ -814,93 +791,6 @@ export const animeService = {
 
     async prefetchAZList(letter: string, page: number = 1) {
         await this.getAZList(letter, page).catch(() => undefined);
-    },
-
-    async getAnimeKaiGenres() {
-        const cacheKey = 'reanime-genres-v1';
-        const cached = getCached(cacheKey, ANIMEKAI_GENRES_CACHE_TTL);
-        if (cached) return cached;
-
-        if (inFlightRequests.has(cacheKey)) {
-            return inFlightRequests.get(cacheKey);
-        }
-
-        const fetchPromise = (async () => {
-            try {
-                const res = await fetch(`${API_BASE}/scraper/animekai/genres`);
-                if (!res.ok) {
-                    throw new Error(`Failed to fetch AnimeKai genres: ${res.statusText}`);
-                }
-
-                const payload = await res.json();
-                const result = Array.isArray(payload?.genres) ? payload.genres : [];
-
-                if (result.length > 0) {
-                    setCache(cacheKey, result, ANIMEKAI_GENRES_CACHE_TTL);
-                }
-
-                return result;
-            } catch (error) {
-                const stale = getStaleCached(cacheKey);
-                if (stale) {
-                    return stale;
-                }
-                throw error;
-            } finally {
-                inFlightRequests.delete(cacheKey);
-            }
-        })();
-
-        inFlightRequests.set(cacheKey, fetchPromise);
-        return fetchPromise;
-    },
-
-    async getAnimeKaiGenrePage(genre: string, page: number = 1, limit: number = 24) {
-        const normalizedGenre = String(genre || '').trim();
-        const cacheKey = `reanime-genre-page:${normalizedGenre.toLowerCase()}:${page}:${limit}`;
-        const cached = getCached(cacheKey, ANIMEKAI_GENRE_PAGE_CACHE_TTL);
-        if (cached) return cached;
-
-        if (inFlightRequests.has(cacheKey)) {
-            return inFlightRequests.get(cacheKey);
-        }
-
-        const fetchPromise = (async () => {
-            try {
-                const res = await fetch(`${API_BASE}/scraper/animekai/genre/${encodeURIComponent(normalizedGenre)}?page=${page}&limit=${limit}`);
-                if (!res.ok) {
-                    throw new Error(`Failed to fetch AnimeKai genre page: ${res.statusText}`);
-                }
-
-                const payload = await res.json();
-                const result = {
-                    genre: payload?.genre || { name: normalizedGenre, slug: normalizedGenre.toLowerCase() },
-                    data: Array.isArray(payload?.data) ? payload.data.map((item: any) => mapScraperToAnime(item)) : [],
-                    pagination: payload?.pagination || {
-                        current_page: page,
-                        last_visible_page: page,
-                        has_next_page: false,
-                    }
-                };
-
-                if (result.data.length > 0 || result.genre?.name) {
-                    setCache(cacheKey, result, ANIMEKAI_GENRE_PAGE_CACHE_TTL);
-                }
-
-                return result;
-            } catch (error) {
-                const stale = getStaleCached(cacheKey);
-                if (stale) {
-                    return stale;
-                }
-                throw error;
-            } finally {
-                inFlightRequests.delete(cacheKey);
-            }
-        })();
-
-        inFlightRequests.set(cacheKey, fetchPromise);
-        return fetchPromise;
     },
 
     // Get anime details from AniList
@@ -1011,32 +901,6 @@ export const animeService = {
         }
 
         const fetchPromise = apiClient.get('/scraper/search/animepahe', {
-            params: { q: title },
-        })
-            .then(({ data }) => {
-                if (Array.isArray(data) && data.length > 0) {
-                    setCache(cacheKey, data, SCRAPER_SEARCH_TTL);
-                }
-                return data;
-            })
-            .finally(() => {
-                inFlightRequests.delete(cacheKey);
-            });
-
-        inFlightRequests.set(cacheKey, fetchPromise);
-        return fetchPromise;
-    },
-
-    async searchAnimeKai(title: string) {
-        const normalizedTitle = title.trim().toLowerCase();
-        const cacheKey = `reanime-search:${normalizedTitle}`;
-        const cached = getCached(cacheKey, SCRAPER_SEARCH_TTL);
-        if (cached) return cached;
-        if (inFlightRequests.has(cacheKey)) {
-            return inFlightRequests.get(cacheKey);
-        }
-
-        const fetchPromise = apiClient.get('/scraper/search/animekai', {
             params: { q: title },
         })
             .then(({ data }) => {
@@ -1362,42 +1226,6 @@ export const animeService = {
         return fetchPromise;
     },
 
-    // Get AnimeKai Top Trending for the home sidebar.
-    async getAnimeKaiTopTrending(range: 'now' | 'week' | 'month') {
-        const cacheKey = `reanime-top-trending-v1-${range}`;
-        const cached = getCached(cacheKey, DETAIL_CACHE_TTL);
-        if (cached) return cached;
-
-        if (inFlightRequests.has(cacheKey)) {
-            return inFlightRequests.get(cacheKey);
-        }
-
-        const fetchPromise = (async () => {
-            try {
-                const res = await fetch(`${API_BASE}/scraper/animekai/top-trending?range=${range}`);
-                if (!res.ok) {
-                    console.warn(`Failed to fetch AnimeKai top trending (${range}): ${res.statusText}`);
-                    return { data: [] };
-                }
-                const payload = await res.json();
-                const top10 = payload.top10 || [];
-                const data = top10.map(mapTopTenItemToAnime);
-
-                const result = { data };
-                if (data.length > 0) {
-                    setCache(cacheKey, result, DETAIL_CACHE_TTL);
-                }
-                return result;
-            } finally {
-                inFlightRequests.delete(cacheKey);
-            }
-        })();
-
-        inFlightRequests.set(cacheKey, fetchPromise);
-        return fetchPromise;
-    },
-
-
     async prefetchStreams(animeSession: string, episodeSessions: string[]) {
         const sessions = [...new Set(episodeSessions.filter(Boolean))];
         if (!animeSession || sessions.length === 0) return;
@@ -1419,13 +1247,13 @@ export const animeService = {
             if (!res.ok) throw new Error('Failed to fetch spotlight');
             const { spotlight } = await res.json();
 
-            // Map to Anime interface
             const data = (spotlight || []).map((item: any) => {
                 const anime = (item?.anilist
                     ? mapAnilistToAnime(item.anilist)
-                    : mapScraperToAnime(item)) as Anime;
+                    : item?.title?.romaji || item?.title?.english || item?.coverImage
+                        ? mapAnilistToAnime(item)
+                        : mapScraperToAnime(item)) as Anime;
 
-                // Override images with AnimeKai hero art when available.
                 anime.anilist_banner_image = item.banner || anime.anilist_banner_image;
                 if (item.poster) {
                     const posterUrl = getDisplayImageUrl(item.poster);

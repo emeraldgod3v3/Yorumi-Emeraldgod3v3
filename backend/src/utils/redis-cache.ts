@@ -12,6 +12,29 @@ const redis = hasRedisConfig
     : null;
 
 const memoryFallback = new Map<string, MemoryEntry>();
+let redisDisabledUntil = 0;
+let redisDisableNoticeShown = false;
+
+function isQuotaError(error: unknown) {
+    return String((error as any)?.message || error).toLowerCase().includes('max requests limit exceeded');
+}
+
+function getRedisClient() {
+    return Date.now() >= redisDisabledUntil ? redis : null;
+}
+
+function handleRedisError(operation: string, key: string, error: unknown) {
+    if (isQuotaError(error)) {
+        redisDisabledUntil = Date.now() + 60 * 60 * 1000;
+        if (!redisDisableNoticeShown) {
+            console.warn(`[redis-cache] Upstash request quota exhausted; using in-memory cache for the next hour.`);
+            redisDisableNoticeShown = true;
+        }
+        return;
+    }
+
+    console.warn(`[${operation}] Redis failed for "${key}"`, error);
+}
 
 function cleanupMemoryFallback() {
     if (memoryFallback.size < 500) return;
@@ -22,12 +45,13 @@ function cleanupMemoryFallback() {
 }
 
 export async function cacheGet<T>(key: string): Promise<T | null> {
-    if (redis) {
+    const client = getRedisClient();
+    if (client) {
         try {
-            const value = await redis.get<T>(key);
+            const value = await client.get<T>(key);
             return value ?? null;
         } catch (error) {
-            console.warn(`[cacheGet] Redis read failed for "${key}"`, error);
+            handleRedisError('cacheGet', key, error);
         }
     }
 
@@ -41,12 +65,13 @@ export async function cacheGet<T>(key: string): Promise<T | null> {
 }
 
 export async function cacheSet(key: string, value: unknown, ttlSeconds: number): Promise<void> {
-    if (redis) {
+    const client = getRedisClient();
+    if (client) {
         try {
-            await redis.set(key, value, { ex: ttlSeconds });
+            await client.set(key, value, { ex: ttlSeconds });
             return;
         } catch (error) {
-            console.warn(`[cacheSet] Redis write failed for "${key}"`, error);
+            handleRedisError('cacheSet', key, error);
         }
     }
 
@@ -58,12 +83,13 @@ export async function cacheSet(key: string, value: unknown, ttlSeconds: number):
 }
 
 export async function acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
-    if (redis) {
+    const client = getRedisClient();
+    if (client) {
         try {
-            const result = await redis.set(key, Date.now().toString(), { nx: true, ex: ttlSeconds });
+            const result = await client.set(key, Date.now().toString(), { nx: true, ex: ttlSeconds });
             return result === 'OK';
         } catch (error) {
-            console.warn(`[acquireLock] Redis lock failed for "${key}"`, error);
+            handleRedisError('acquireLock', key, error);
         }
     }
 
@@ -77,11 +103,12 @@ export async function acquireLock(key: string, ttlSeconds: number): Promise<bool
 }
 
 export async function releaseLock(key: string): Promise<void> {
-    if (redis) {
+    const client = getRedisClient();
+    if (client) {
         try {
-            await redis.del(key);
+            await client.del(key);
         } catch (error) {
-            console.warn(`[releaseLock] Redis unlock failed for "${key}"`, error);
+            handleRedisError('releaseLock', key, error);
         }
     }
     memoryFallback.delete(key);

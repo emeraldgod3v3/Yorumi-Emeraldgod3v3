@@ -146,7 +146,8 @@ function scoreAnimeSearchCandidate(
 // RATE LIMITING - Prevents hitting AniList's rate limit
 // ============================================================================
 let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL = 500; // 500ms between requests (max 2/sec)
+let rateLimitQueue = Promise.resolve();
+const MIN_REQUEST_INTERVAL = 1000; // Keep AniList requests serialized at about 60/min.
 const inFlightRequests = new Map<string, Promise<any>>();
 const REDIS_RATE_LIMIT_KEY = 'anilist:ratelimit:last-request-ms';
 
@@ -161,7 +162,7 @@ function getRequestHash(query: string, variables: any): string {
         .digest('hex');
 }
 
-async function applyRateLimit(): Promise<void> {
+async function applyRateLimitOnce(): Promise<void> {
     const now = Date.now();
     const localElapsed = now - lastRequestTime;
     if (localElapsed < MIN_REQUEST_INTERVAL) {
@@ -185,15 +186,30 @@ async function applyRateLimit(): Promise<void> {
     }
 }
 
+async function applyRateLimit(): Promise<void> {
+    const previous = rateLimitQueue;
+    let release: () => void = () => undefined;
+    rateLimitQueue = new Promise<void>((resolve) => {
+        release = resolve;
+    });
+
+    await previous;
+    try {
+        await applyRateLimitOnce();
+    } finally {
+        release();
+    }
+}
+
 function getRetryDelayMs(error: any, attempt: number): number {
     const retryAfterHeader = error?.response?.headers?.['retry-after'];
     const retryAfterSec = Number(retryAfterHeader);
     if (Number.isFinite(retryAfterSec) && retryAfterSec > 0) {
-        return retryAfterSec * 1000;
+        return Math.min(retryAfterSec * 1000, 5000);
     }
 
     const base = 800;
-    const max = 15000;
+    const max = 5000;
     const jitter = Math.floor(Math.random() * 350);
     return Math.min(base * Math.pow(2, attempt) + jitter, max);
 }
@@ -230,7 +246,7 @@ async function rateLimitedRequest(
     }
 
     const requestPromise = (async () => {
-        const maxAttempts = 4;
+        const maxAttempts = 2;
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             try {
@@ -1044,12 +1060,16 @@ export const anilistService = {
 
     async searchAnime(search: string, page: number = 1, perPage: number = 24) {
         const cacheKey = `search:anime:${search.toLowerCase().trim()}:${page}:${perPage}`;
+        const memoryCacheKey = getCacheKey('search', search.toLowerCase().trim(), page, perPage);
+        const memoryHit = getFromCache(memoryCacheKey);
+        if (memoryHit) return memoryHit;
 
         // 1. Check Cache
         try {
             const cachedResult = await redis.get(cacheKey);
             if (cachedResult) {
                 console.log(`⚡ Cache Hit (Search): ${search}`);
+                setCache(memoryCacheKey, cachedResult, CACHE_TTL.search);
                 return cachedResult;
             }
         } catch (error) {
@@ -1075,6 +1095,7 @@ export const anilistService = {
         try {
             const response = await rateLimitedRequest(query, { search, page, perPage }, { cacheTtlSeconds: 300 });
             const data = response.data.Page;
+            setCache(memoryCacheKey, data, CACHE_TTL.search);
 
             // 2. Set Cache (24 hours)
             try {
@@ -1119,6 +1140,7 @@ export const anilistService = {
                         candidateMap.set(id, item);
                     }
                 }
+                if (candidateMap.size >= perPage) break;
             } catch (error) {
                 console.error(`Error searching AniList candidates for "${title}":`, error);
             }
