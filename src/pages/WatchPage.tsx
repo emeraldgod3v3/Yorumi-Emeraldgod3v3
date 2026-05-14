@@ -158,7 +158,7 @@ export default function WatchPage() {
     };
 
     return (
-        <div className="watch-viewport relative flex flex-col w-full bg-[#0a0a0a] text-white overflow-hidden pt-14">
+        <div className="watch-viewport relative flex flex-col w-full max-w-full bg-[#0a0a0a] text-white overflow-hidden pt-14">
             {backdropImage && (
                 <>
                     <div
@@ -171,7 +171,7 @@ export default function WatchPage() {
             {/* 1. Header Row (Fixed) */}
 
 
-            <div className="flex-1 flex flex-col min-h-0 overflow-hidden px-0 pb-0 pt-4 gap-4 md:px-10 md:pb-10 md:gap-8 relative z-10">
+            <div className="flex-1 flex flex-col min-h-0 w-full max-w-full overflow-hidden px-0 pb-0 pt-4 gap-4 md:px-10 md:pb-10 md:gap-8 relative z-10">
                 <div className="flex items-center gap-3 shrink-0 min-w-0 px-4 md:px-0">
                     <button
                         onClick={() => navigate('/')}
@@ -199,18 +199,18 @@ export default function WatchPage() {
                     )}
                 </div>
 
-                <div className="flex-1 flex flex-col md:flex-row min-h-0 relative overflow-visible md:overflow-hidden gap-0 md:gap-8">
-                        <div className="flex-none md:flex-1 min-w-0 relative flex flex-col overflow-visible md:overflow-hidden items-center">
+                <div className="flex-1 flex flex-col md:flex-row min-h-0 w-full max-w-full relative overflow-hidden gap-0 md:gap-8">
+                        <div className="w-full max-w-full md:flex-1 min-w-0 relative flex flex-col overflow-hidden items-center">
                             {/* Constrained Column - Ensures 16:9 ratio is never broken by viewport height */}
                             <div
-                                className={`w-full h-auto md:h-full flex flex-col gap-0 md:gap-6 ${
+                                className={`mx-auto w-full max-w-full min-w-0 h-auto md:h-full flex flex-col gap-0 md:gap-6 ${
                                     isExpanded
                                         ? 'md:max-w-[min(96vw,calc((100vh-248px)*1.777))]'
                                         : 'md:max-w-[calc((100vh-252px)*1.777)]'
                                 }`}
                             >
                                 {/* Video Player Card - Maximized & End-to-End Alignment */}
-                                <div className="shrink-0 w-full aspect-video flex items-center justify-center overflow-hidden relative">
+                                <div className="shrink-0 w-full max-w-full aspect-video flex items-center justify-center overflow-hidden relative rounded-none md:rounded-2xl">
                                     <VideoPlayer
                                         streamUrl={currentStream?.url}
                                         episodeSession={currentEpisode?.session ?? epNum}
