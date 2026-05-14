@@ -70,13 +70,13 @@ const SpotlightHero: React.FC<SpotlightHeroProps> = ({ animeList, isLoading = fa
 
     return (
         <div
-            className="relative w-full h-[55vh] md:h-[75vh] min-h-[500px] md:min-h-[600px] group bg-yorumi-bg overflow-hidden"
+            className="relative w-full h-[62vh] md:h-[88vh] min-h-[520px] md:min-h-[680px] group bg-yorumi-bg overflow-hidden"
         >
             {/* Embla Viewport */}
             <div className="absolute inset-0 overflow-hidden" ref={emblaRef}>
                 <div className="flex h-full touch-pan-y">
                     {animeList.map((anime, index) => {
-                        const landscapeImage = anime.anilist_banner_image;
+                        const landscapeImage = anime.anilist_banner_image || anime.images.jpg.large_image_url;
                         const trailerSite = anime.trailer?.site?.toLowerCase();
                         const trailerId = anime.trailer?.id;
                         const isActive = index === selectedIndex;
@@ -99,9 +99,9 @@ const SpotlightHero: React.FC<SpotlightHeroProps> = ({ animeList, isLoading = fa
                                 {/* Background Image */}
                                 <div className="absolute inset-0 z-0 select-none">
                                     {trailerUrl && isActive && (
-                                        <div className="absolute right-0 top-0 w-full md:w-[70%] h-full pointer-events-none">
+                                        <div className="absolute inset-0 pointer-events-none">
                                             <iframe
-                                                className="absolute inset-0 w-full h-full"
+                                                className="absolute inset-0 h-full w-full scale-125"
                                                 src={trailerUrl}
                                                 title={`${getDisplayTitle(anime as unknown as Record<string, unknown>, language)} trailer`}
                                                 allow="autoplay; encrypted-media; picture-in-picture"
@@ -110,21 +110,20 @@ const SpotlightHero: React.FC<SpotlightHeroProps> = ({ animeList, isLoading = fa
                                         </div>
                                     )}
                                     <div
-                                        className={`absolute right-0 top-0 w-full md:w-[70%] h-full bg-no-repeat bg-cover bg-center ${trailerUrl && isActive ? 'opacity-0' : 'md:opacity-80'}`}
+                                        className={`absolute inset-0 bg-no-repeat bg-cover bg-center ${trailerUrl && isActive ? 'opacity-0' : 'opacity-90'}`}
                                         style={{
                                             backgroundImage: shouldLoadBackdrop ? `url(${landscapeImage})` : 'none',
-                                            maskImage: 'linear-gradient(90deg, transparent 0%, black 20%, black 100%)',
-                                            WebkitMaskImage: 'linear-gradient(90deg, transparent 0%, black 20%, black 100%)'
                                         }}
                                     />
                                     {/* Overlay */}
-                                    <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a0a] via-[#0a0a0a]/70 to-transparent pointer-events-none" />
-                                    <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-transparent to-transparent pointer-events-none" />
+                                    <div className="absolute inset-0 bg-black/40 pointer-events-none" />
+                                    <div className="absolute inset-0 bg-gradient-to-r from-[#050505] via-[#050505]/70 to-[#050505]/15 pointer-events-none" />
+                                    <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-[#050505]/25 to-transparent pointer-events-none" />
                                 </div>
 
                                 {/* Content */}
-                                <div className="absolute inset-0 flex items-center px-4 md:px-14 z-10 pointer-events-none">
-                                    <div className="flex flex-col md:flex-row gap-8 md:gap-16 items-center w-full max-w-7xl mx-auto pt-16 md:pt-0">
+                                <div className="absolute inset-0 flex items-end px-4 pb-14 md:px-16 md:pb-24 z-10 pointer-events-none">
+                                    <div className="flex w-full max-w-7xl mx-auto">
 
                                         {/* Left Column: Text Info */}
                                         <div className="flex-1 pointer-events-auto max-w-2xl w-full min-w-0">
@@ -220,17 +219,17 @@ const SpotlightHero: React.FC<SpotlightHeroProps> = ({ animeList, isLoading = fa
             </div>
 
             {/* Navigation Buttons */}
-            <div className="absolute bottom-8 right-8 z-20 hidden md:flex gap-2">
+            <div className="absolute right-5 top-20 z-20 hidden md:flex gap-2">
                 <button
                     onClick={handlePrev}
-                    className="p-2 bg-black/60 hover:bg-yorumi-accent hover:text-yorumi-bg text-white rounded-lg border border-white/10 transition-all backdrop-blur-md"
+                    className="p-2.5 bg-black/55 hover:bg-yorumi-accent hover:text-yorumi-bg text-white rounded-md border border-white/10 transition-all backdrop-blur-md"
                     aria-label="Previous Slide"
                 >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
                 </button>
                 <button
                     onClick={handleNext}
-                    className="p-2 bg-black/60 hover:bg-yorumi-accent hover:text-yorumi-bg text-white rounded-lg border border-white/10 transition-all backdrop-blur-md"
+                    className="p-2.5 bg-black/55 hover:bg-yorumi-accent hover:text-yorumi-bg text-white rounded-md border border-white/10 transition-all backdrop-blur-md"
                     aria-label="Next Slide"
                 >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
@@ -238,7 +237,7 @@ const SpotlightHero: React.FC<SpotlightHeroProps> = ({ animeList, isLoading = fa
             </div>
 
             {/* Dots Indicator */}
-            <div className="absolute z-20 flex gap-2 right-4 top-1/2 -translate-y-1/2 flex-col md:flex-row md:bottom-6 md:left-1/2 md:-translate-x-1/2 md:top-auto md:right-auto md:translate-y-0">
+            <div className="absolute z-20 flex gap-2 right-4 top-1/2 -translate-y-1/2 flex-col md:flex-row md:bottom-8 md:right-8 md:left-auto md:top-auto md:translate-y-0">
                 {animeList.map((_, idx) => (
                     <button
                         key={idx}

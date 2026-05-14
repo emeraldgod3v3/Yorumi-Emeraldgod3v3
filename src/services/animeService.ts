@@ -219,7 +219,7 @@ const mapLatestUpdateItemToAnime = (item: any): Anime => {
         ? (mapAnilistToAnime(item.anilist) as Anime)
         : (mapScraperToAnime(item) as Anime);
 
-    if (item.poster) {
+    if (item.poster && !item?.anilist) {
         const posterUrl = getDisplayImageUrl(item.poster);
         anime.images.jpg.image_url = posterUrl;
         anime.images.jpg.large_image_url = posterUrl;
@@ -457,7 +457,7 @@ export const animeService = {
     },
 
     async getHomeFastData() {
-        const cacheKey = 'home-fast-data-v13';
+        const cacheKey = 'home-fast-data-v16';
         const cached = getCached(cacheKey, DETAIL_CACHE_TTL);
         if (cached) return cached;
 
@@ -536,7 +536,7 @@ export const animeService = {
     },
 
     async getLatestUpdates(): Promise<LatestUpdatesResult> {
-        const cacheKey = 'animepahe-card-latest-updates-v1';
+        const cacheKey = 'animepahe-card-latest-updates-v4';
         const cached = getCached(cacheKey, DETAIL_CACHE_TTL);
         if (cached) return cached;
         const staleCached = getStaleCached(cacheKey);
@@ -579,7 +579,7 @@ export const animeService = {
     },
 
     async getLatestUpdatesPage(page: number = 1, limit: number = 18): Promise<LatestUpdatesPageResult> {
-        const cacheKey = `animepahe-card-latest-updates-page-v1-${page}-${limit}`;
+        const cacheKey = `animepahe-card-latest-updates-page-v3-${page}-${limit}`;
         const cached = getCached(cacheKey, DETAIL_CACHE_TTL);
         if (cached) return cached;
         const staleCached = getStaleCached(cacheKey);
@@ -1412,11 +1412,11 @@ export const animeService = {
         }).catch(() => undefined);
     },
 
-    // Get spotlight (AnimeKai scraper, enriched with AniList data)
+    // Get Re:Anime spotlight, enriched with AniList metadata when available.
     async getSpotlightAnime() {
         try {
-            const res = await fetchJsonWithTimeout(`${API_BASE}/scraper/animekai/spotlight`, {}, 5000);
-            if (!res.ok) throw new Error('Failed to fetch AnimeKai spotlight');
+            const res = await fetchJsonWithTimeout(`${API_BASE}/scraper/animekai/spotlight`, {}, 4000);
+            if (!res.ok) throw new Error('Failed to fetch spotlight');
             const { spotlight } = await res.json();
 
             // Map to Anime interface

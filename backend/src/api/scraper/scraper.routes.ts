@@ -15,8 +15,9 @@ let spotlightMemCache: { spotlight: any[] } | null = null;
 let latestUpdatesMemCache: { latestEpisodes: any[] } | null = null;
 const newReleasesMemCache = new Map<string, { data: any[]; pagination: any }>();
 const SPOTLIGHT_REDIS_KEY = 'reanime:spotlight:enriched:v2';
-const LATEST_REDIS_KEY = 'animepahe:latest-updates:cards:v1';
-const NEW_RELEASES_REDIS_PREFIX = 'animepahe:new-releases:cards:v1';
+const LATEST_HOME_LIMIT = 10;
+const LATEST_REDIS_KEY = 'animepahe:latest-updates:cards:v3';
+const NEW_RELEASES_REDIS_PREFIX = 'animepahe:new-releases:cards:v2';
 const CACHE_TTL_SECONDS = 300; // 5 min fresh window
 
 const buildAnimeKaiFallbackItems = (items: any[]) => {
@@ -144,12 +145,12 @@ const getStaleSpotlight = async (): Promise<{ spotlight: any[] }> => {
 
 /** Read stale data from memory → Redis → empty. Never throws. */
 const getStaleLatestUpdates = async (): Promise<{ latestEpisodes: any[] }> => {
-    if (latestUpdatesMemCache && latestUpdatesMemCache.latestEpisodes.length > 0) {
+    if (latestUpdatesMemCache && latestUpdatesMemCache.latestEpisodes.length >= LATEST_HOME_LIMIT) {
         return latestUpdatesMemCache;
     }
     try {
         const redisHit = await redis.get<any>(LATEST_REDIS_KEY);
-        if (redisHit && Array.isArray(redisHit.latestEpisodes) && redisHit.latestEpisodes.length > 0) {
+        if (redisHit && Array.isArray(redisHit.latestEpisodes) && redisHit.latestEpisodes.length >= LATEST_HOME_LIMIT) {
             latestUpdatesMemCache = redisHit;
             return redisHit;
         }
@@ -158,11 +159,12 @@ const getStaleLatestUpdates = async (): Promise<{ latestEpisodes: any[] }> => {
 };
 
 const refreshLatestUpdatesCache = async (): Promise<{ latestEpisodes: any[] }> => {
-    const latest = await scraperService.getAnimePaheLatestUpdates(1);
-    const latestEpisodes = Array.isArray(latest?.data) ? latest.data : [];
+    const latest = await scraperService.getAnimePaheLatestUpdates(1, LATEST_HOME_LIMIT);
+    const rawLatestEpisodes = Array.isArray(latest?.data) ? latest.data : [];
+    const latestEpisodes = await enrichAnimeKaiItemsWithFallback(rawLatestEpisodes, 2500);
     const payload = { latestEpisodes };
 
-    if (latestEpisodes.length > 0) {
+    if (latestEpisodes.length >= LATEST_HOME_LIMIT) {
         latestUpdatesMemCache = payload;
         redis.set(LATEST_REDIS_KEY, payload, { ex: CACHE_TTL_SECONDS }).catch(() => undefined);
     }
@@ -330,7 +332,7 @@ router.get('/search/animekai', async (req, res) => {
 router.get('/animekai/latest-updates', async (_req, res) => {
     res.set('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=300');
     try {
-        if (latestUpdatesMemCache && latestUpdatesMemCache.latestEpisodes.length > 0) {
+        if (latestUpdatesMemCache && latestUpdatesMemCache.latestEpisodes.length >= LATEST_HOME_LIMIT) {
             res.json(latestUpdatesMemCache);
             refreshLatestUpdatesCache().catch((error) => {
                 console.error('AnimeKai latest-updates background refresh failed:', error?.message || error);
@@ -339,7 +341,7 @@ router.get('/animekai/latest-updates', async (_req, res) => {
         }
 
         const redisHit = await redis.get<any>(LATEST_REDIS_KEY).catch(() => null);
-        if (redisHit && Array.isArray(redisHit.latestEpisodes) && redisHit.latestEpisodes.length > 0) {
+        if (redisHit && Array.isArray(redisHit.latestEpisodes) && redisHit.latestEpisodes.length >= LATEST_HOME_LIMIT) {
             latestUpdatesMemCache = redisHit;
             res.json(redisHit);
             refreshLatestUpdatesCache().catch((error) => {
@@ -387,7 +389,8 @@ router.get('/recently-updated', async (req, res) => {
     res.set('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=300');
     try {
         const result = await scraperService.getAnimePaheLatestUpdates(page, limit);
-        const listItems = Array.isArray(result?.data) ? result.data : [];
+        const rawItems = Array.isArray(result?.data) ? result.data : [];
+        const listItems = await enrichAnimeKaiItemsWithFallback(rawItems, 2500);
         const payload = { data: listItems, pagination: result.pagination };
 
         if (listItems.length > 0) {
@@ -397,7 +400,7 @@ router.get('/recently-updated', async (req, res) => {
 
         res.json(payload);
     } catch (error: any) {
-        console.error(`AnimeKai new-releases (page=${page}) scrape failed, serving stale:`, error?.message || error);
+        console.error(`AnimePahe recently-updated (page=${page}) failed, serving stale:`, error?.message || error);
         const stale = await getStaleNewReleases(cacheKey);
         res.json(stale || {
             data: [],
@@ -415,7 +418,8 @@ router.get('/animekai/new-releases', async (req, res) => {
     res.set('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=300');
     try {
         const result = await scraperService.getAnimePaheLatestUpdates(page, limit);
-        const listItems = Array.isArray(result?.data) ? result.data : [];
+        const rawItems = Array.isArray(result?.data) ? result.data : [];
+        const listItems = await enrichAnimeKaiItemsWithFallback(rawItems, 2500);
         const payload = { data: listItems, pagination: result.pagination };
 
         if (listItems.length > 0) {

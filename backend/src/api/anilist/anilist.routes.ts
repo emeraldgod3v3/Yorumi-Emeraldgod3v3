@@ -8,7 +8,7 @@ import { scraperService } from '../scraper/scraper.service';
 import { tmdbService } from '../scraper/tmdb.service';
 
 const router = Router();
-const HOME_FAST_CACHE_KEY = 'anilist:home:fast:v15';
+const HOME_FAST_CACHE_KEY = 'anilist:home:fast:v16';
 const HOME_FAST_TTL_SECONDS = 120;
 let homeFastMemoryCache: { data: any; timestamp: number } | null = null;
 let homeFastRefreshPromise: Promise<any> | null = null;
@@ -251,16 +251,38 @@ const getFreshHomeFastFromMemory = () => {
     return homeFastMemoryCache.data;
 };
 
+const mapWithConcurrency = async <T, R>(
+    items: T[],
+    limit: number,
+    mapper: (item: T, index: number) => Promise<R>
+) => {
+    const results = new Array<R>(items.length);
+    let nextIndex = 0;
+    const workerCount = Math.min(Math.max(1, limit), items.length);
+
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+        while (nextIndex < items.length) {
+            const index = nextIndex;
+            nextIndex += 1;
+            results[index] = await mapper(items[index], index);
+        }
+    }));
+
+    return results;
+};
+
 const enrichAnimeKaiItems = async (items: any[]) => {
     const safeItems = Array.isArray(items) ? items.filter((item) => item?.title) : [];
-    const results = await Promise.allSettled(
-        safeItems.map(async (item) => {
+    const results = await mapWithConcurrency(
+        safeItems,
+        2,
+        async (item) => {
             const anilistMedia = await anilistService.findBestAnimeMatch({
                 titles: [item.title, item.jname].filter(Boolean),
                 episodes: Number(item.episodes || item.latestEpisode || item.sub || 0) || undefined,
                 format: item.type,
                 perPage: 5,
-            });
+            }).catch(() => null);
 
             return {
                 ...item,
@@ -268,13 +290,11 @@ const enrichAnimeKaiItems = async (items: any[]) => {
                 mal_id: anilistMedia?.idMal || anilistMedia?.id || 0,
                 anilist: anilistMedia || null,
             };
-        })
+        }
     );
 
     return results
-        .map((result, index) => result.status === 'fulfilled'
-            ? result.value
-            : {
+        .map((result, index) => result || {
                 ...safeItems[index],
                 id: 0,
                 mal_id: 0,
@@ -327,8 +347,20 @@ const clearSpotlightBanners = (items: any[]) =>
         banner: item?.banner || item?.anilist?.bannerImage || undefined,
     }));
 
+const wrapAniListMediaItems = (items: any[]) =>
+    (Array.isArray(items) ? items : []).map((item) => ({
+        title: item?.title?.english || item?.title?.romaji || item?.title?.native || 'Unknown',
+        poster: item?.coverImage?.extraLarge || item?.coverImage?.large,
+        banner: item?.bannerImage,
+        type: item?.format,
+        episodes: item?.episodes,
+        latestEpisode: item?.nextAiringEpisode?.episode ? item.nextAiringEpisode.episode - 1 : undefined,
+        id: item?.id || 0,
+        mal_id: item?.idMal || item?.id || 0,
+        anilist: item,
+    }));
+
 const buildHomeFastPayload = async () => {
-    const reAnimeScraper = new ReAnimeScraper();
     const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> => {
         try {
             return await Promise.race<T>([
@@ -339,70 +371,34 @@ const buildHomeFastPayload = async () => {
             return fallback;
         }
     };
-    const [spotlight, latestEpisodesRaw, trending, seasonal, monthly, topAnime, topNow, topWeek, topMonth] = await Promise.all([
-        withTimeout(
-            reAnimeScraper.getSpotlightAnime().then(async (items) => {
-                const rawItems = Array.isArray(items) ? items : [];
-                if (rawItems.length === 0) return [];
-                const rawSpotlight = buildAnimeKaiFallbackItems(rawItems);
-                const enriched = await Promise.race([
-                    enrichAnimeKaiItems(rawItems),
-                    new Promise<any[]>((resolve) => setTimeout(() => resolve(rawSpotlight), 2500)),
-                ]);
-                return Promise.race([
-                    applyTmdbSpotlightBanners(enriched),
-                    new Promise<any[]>((resolve) => setTimeout(() => resolve(clearSpotlightBanners(enriched)), 3500)),
-                ]);
-            }),
-            5000,
-            [] as any[]
-        ),
+    const [spotlightRaw, latestEpisodesRaw, trending, seasonal, monthly, topAnime] = await Promise.all([
+        withTimeout(new ReAnimeScraper().getSpotlightAnime(), 4000, [] as any[]),
         withTimeout(
             scraperService.getAnimePaheLatestUpdates(1, 10).then((result) =>
                 Array.isArray(result?.data) ? result.data : []
             ),
-            6500,
+            3500,
             [] as any[]
         ),
         withTimeout(anilistService.getTrendingAnime(1, 10), 4000, { media: [] }),
         withTimeout(anilistService.getPopularThisSeason(1, 10), 4000, { media: [] }),
         withTimeout(anilistService.getPopularThisMonth(1, 10), 4000, { media: [] }),
         withTimeout(anilistService.getTopAnime(1, 18), 4000, { media: [], pageInfo: { lastPage: 1, currentPage: 1, hasNextPage: false } }),
-        withTimeout(
-            reAnimeScraper.getTopTrending('now').then((items) => {
-                const rawItems = Array.isArray(items) ? items : [];
-                return Promise.race([
-                    enrichAnimeKaiItems(rawItems),
-                    new Promise<any[]>((resolve) => setTimeout(() => resolve(buildAnimeKaiFallbackItems(rawItems)), 5000)),
-                ]);
-            }),
-            6500,
-            [] as any[]
-        ),
-        withTimeout(
-            reAnimeScraper.getTopTrending('week').then((items) => {
-                const rawItems = Array.isArray(items) ? items : [];
-                return Promise.race([
-                    enrichAnimeKaiItems(rawItems),
-                    new Promise<any[]>((resolve) => setTimeout(() => resolve(buildAnimeKaiFallbackItems(rawItems)), 5000)),
-                ]);
-            }),
-            6500,
-            [] as any[]
-        ),
-        withTimeout(
-            reAnimeScraper.getTopTrending('month').then((items) => {
-                const rawItems = Array.isArray(items) ? items : [];
-                return Promise.race([
-                    enrichAnimeKaiItems(rawItems),
-                    new Promise<any[]>((resolve) => setTimeout(() => resolve(buildAnimeKaiFallbackItems(rawItems)), 5000)),
-                ]);
-            }),
-            6500,
-            [] as any[]
-        ),
     ]);
-    const latestEpisodes = buildAnimeKaiFallbackItems(Array.isArray(latestEpisodesRaw) ? latestEpisodesRaw : []);
+    const latestRawItems = Array.isArray(latestEpisodesRaw) ? latestEpisodesRaw : [];
+    const latestEpisodes = await Promise.race([
+        enrichAnimeKaiItems(latestRawItems),
+        new Promise<any[]>((resolve) => setTimeout(() => resolve(buildAnimeKaiFallbackItems(latestRawItems)), 2500)),
+    ]);
+    const spotlightRawItems = buildAnimeKaiFallbackItems(Array.isArray(spotlightRaw) ? spotlightRaw : []);
+    const spotlightEnriched = await Promise.race([
+        enrichAnimeKaiItems(spotlightRawItems),
+        new Promise<any[]>((resolve) => setTimeout(() => resolve(spotlightRawItems), 2500)),
+    ]);
+    const spotlight = await Promise.race([
+        applyTmdbSpotlightBanners(spotlightEnriched),
+        new Promise<any[]>((resolve) => setTimeout(() => resolve(clearSpotlightBanners(spotlightEnriched)), 3500)),
+    ]);
 
     return {
         spotlight: Array.isArray(spotlight) ? spotlight : [],
@@ -412,9 +408,9 @@ const buildHomeFastPayload = async () => {
         monthly,
         topAnime,
         topTen: {
-            day: Array.isArray(topNow) ? topNow : [],
-            week: Array.isArray(topWeek) ? topWeek : [],
-            month: Array.isArray(topMonth) ? topMonth : [],
+            day: wrapAniListMediaItems(trending?.media || []),
+            week: wrapAniListMediaItems(seasonal?.media || []),
+            month: wrapAniListMediaItems(monthly?.media || []),
         },
         generatedAt: Date.now(),
     };
@@ -426,7 +422,7 @@ const refreshHomeFastCache = async () => {
         try {
             const payload = await buildHomeFastPayload();
             if (!Array.isArray(payload.spotlight) || payload.spotlight.length === 0) {
-                throw new Error('Home fast payload missing ReAnime spotlight');
+                throw new Error('Home fast payload missing spotlight');
             }
             homeFastMemoryCache = { data: payload, timestamp: Date.now() };
             await redis.set(HOME_FAST_CACHE_KEY, payload, { ex: HOME_FAST_TTL_SECONDS });
