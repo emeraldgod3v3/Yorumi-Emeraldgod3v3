@@ -13,6 +13,12 @@ if (shouldRunStandaloneServer) {
     const startServer = async () => {
         logger.info('Starting Yorumi backend server');
 
+        app.listen(port, () => {
+            logger.info(`Server is running on http://localhost:${port}`);
+        });
+
+        startScraperWarmer();
+
         try {
             logger.info('Warming anime homepage caches');
             await Promise.race([
@@ -33,12 +39,6 @@ if (shouldRunStandaloneServer) {
         } catch (error) {
             logger.warn('Secondary cache warming failed', error);
         }
-
-        app.listen(port, () => {
-            logger.info(`Server is running on http://localhost:${port}`);
-        });
-
-        startScraperWarmer();
 
         setInterval(() => {
             logger.info('Running scheduled homepage cache refresh');

@@ -1243,7 +1243,7 @@ export const animeService = {
     // Get Re:Anime spotlight, enriched with AniList metadata when available.
     async getSpotlightAnime() {
         try {
-            const res = await fetchJsonWithTimeout(`${API_BASE}/scraper/animekai/spotlight`, {}, 4000);
+            const res = await fetchJsonWithTimeout(`${API_BASE}/scraper/animekai/spotlight`, {}, 12000);
             if (!res.ok) throw new Error('Failed to fetch spotlight');
             const { spotlight } = await res.json();
 
