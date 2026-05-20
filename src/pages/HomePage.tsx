@@ -268,6 +268,7 @@ export default function HomePage() {
                 onBack={anime.closeViewAll}
                 onAnimeClick={handleAnimeClick}
                 onAnimeHover={handleAnimeHover}
+                variant="landscape"
             />
         );
     }

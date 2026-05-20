@@ -149,11 +149,11 @@ export default function UserSearchPage() {
                         <div className="text-red-400 font-bold mb-2">Error accessing users database</div>
                         <div className="text-gray-400 text-sm mb-4">{errorMsg}</div>
                         <div className="text-amber-400 text-sm font-semibold max-w-lg mx-auto">
-                            If you see a "Missing or insufficient permissions" error, you need to update your Firebase Firestore rules to allow read access:
+                            If you see a "Missing or insufficient permissions" error, update your Firebase Firestore rules to allow public read access:
                             <br />
                             <code className="block mt-2 bg-black/30 p-2 rounded text-left font-mono text-xs">
                                 match /users/&#123;userId&#125; &#123;<br/>
-                                &nbsp;&nbsp;allow read: if request.auth != null;<br/>
+                                &nbsp;&nbsp;allow read: if true;<br/>
                                 &nbsp;&nbsp;allow write: if request.auth != null && request.auth.uid == userId;<br/>
                                 &#125;
                             </code>

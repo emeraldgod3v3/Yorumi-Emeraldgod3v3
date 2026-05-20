@@ -231,6 +231,15 @@ const mapLatestUpdateItemToAnime = (item: any): Anime => {
     anime.title_english = anime.title_english || item.title;
     anime.type = item.type || anime.type || 'TV';
     anime.duration = item.duration || anime.duration;
+    const latestImage = item.image || item.snapshot || item.poster;
+    if (latestImage) {
+        anime.episodeMetadata = [{
+            title: item.episodeTitle || `Episode ${item.latestEpisode || item.sub || ''}`.trim(),
+            thumbnail: getDisplayImageUrl(latestImage),
+            url: item.url || item.link || '',
+            site: 'latest',
+        }];
+    }
     const genericScraperId =
         String(item.scraperId || '').trim() ||
         extractAniKaiScraperId(item.link) ||
@@ -535,7 +544,7 @@ export const animeService = {
     },
 
     async getLatestUpdates(): Promise<LatestUpdatesResult> {
-        const cacheKey = 'animepahe-card-latest-updates-v4';
+        const cacheKey = 'animepahe-card-latest-updates-v5';
         const cached = getCached(cacheKey, DETAIL_CACHE_TTL);
         if (cached) return cached;
         const staleCached = getStaleCached(cacheKey);
@@ -578,7 +587,7 @@ export const animeService = {
     },
 
     async getLatestUpdatesPage(page: number = 1, limit: number = 18): Promise<LatestUpdatesPageResult> {
-        const cacheKey = `animepahe-card-latest-updates-page-v3-${page}-${limit}`;
+        const cacheKey = `animepahe-card-latest-updates-page-v4-${page}-${limit}`;
         const cached = getCached(cacheKey, DETAIL_CACHE_TTL);
         if (cached) return cached;
         const staleCached = getStaleCached(cacheKey);
