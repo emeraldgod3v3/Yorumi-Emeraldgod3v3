@@ -1,4 +1,4 @@
-import { ArrowLeft } from 'lucide-react';
+import { ChevronRight, Home } from 'lucide-react';
 import AnimeCardSkeleton from './AnimeCardSkeleton';
 import Pagination from '../../../components/ui/Pagination';
 import AnimeCard from './AnimeCard';
@@ -81,14 +81,18 @@ export default function AnimeGridPage({
 
     return (
         <div className="pb-12 min-h-screen pt-24 container mx-auto px-4 animate-in fade-in duration-300">
-            <div className="flex items-center gap-4 mb-8">
+            <div className="mb-8 flex min-w-0 items-center gap-3">
                 <button
                     onClick={onBack}
-                    className="p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors"
+                    className="p-2 -ml-2 text-white/70 hover:text-white transition-all hover:bg-white/10 rounded-lg active:scale-95 group"
+                    aria-label="Go Home"
                 >
-                    <ArrowLeft className="w-5 h-5 text-white" />
+                    <Home className="w-5 h-5 group-hover:scale-110 transition-transform" />
                 </button>
-                <h2 className="text-2xl font-black text-white tracking-wide uppercase">{title}</h2>
+                <ChevronRight className="w-4 h-4 text-white/35 shrink-0" />
+                <h2 className="min-w-0 truncate text-sm font-bold text-white tracking-wide">
+                    {title}
+                </h2>
             </div>
             {isLoading ? (
                 <div className={variant === 'landscape'

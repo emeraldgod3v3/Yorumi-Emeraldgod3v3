@@ -126,10 +126,10 @@ export default function HomePage() {
         return routeResolutionCache.current.get(routeKey)!;
     }, [getImmediateRouteTarget, getRouteResolutionKey]);
 
-    const handleAnimeClick = async (item: Anime) => {
+    const handleAnimeClick = async (item: Anime, breadcrumbParent?: string) => {
         const resolved = getImmediateRouteTarget(item) || await resolveRouteTarget(item);
         if (!resolved) return;
-        navigate(`/anime/details/${resolved.routeId}`, { state: { anime: resolved.anime } });
+        navigate(`/anime/details/${resolved.routeId}`, { state: { anime: resolved.anime, breadcrumbParent } });
     };
 
     const handleWatchClick = async (item: Anime, episodeNumber?: number, startSeconds?: number) => {
@@ -251,7 +251,7 @@ export default function HomePage() {
                 pagination={anime.viewAllPagination}
                 onPageChange={anime.changeViewAllPage}
                 onBack={anime.closeViewAll}
-                onAnimeClick={handleAnimeClick}
+                onAnimeClick={(item) => handleAnimeClick(item, 'Trending')}
                 onAnimeHover={handleAnimeHover}
             />
         );
@@ -282,7 +282,7 @@ export default function HomePage() {
                 pagination={anime.viewAllPagination}
                 onPageChange={anime.changeViewAllPage}
                 onBack={anime.closeViewAll}
-                onAnimeClick={handleAnimeClick}
+                onAnimeClick={(item) => handleAnimeClick(item, 'Popular This Season')}
                 onAnimeHover={handleAnimeHover}
             />
         );
@@ -297,7 +297,7 @@ export default function HomePage() {
                 pagination={anime.viewAllPagination}
                 onPageChange={anime.changeViewAllPage}
                 onBack={anime.closeViewAll}
-                onAnimeClick={handleAnimeClick}
+                onAnimeClick={(item) => handleAnimeClick(item, 'All-Time Popular')}
                 onAnimeHover={handleAnimeHover}
             />
         );

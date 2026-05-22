@@ -150,6 +150,9 @@ export default function AnimeDetailsPage() {
     const navigate = useNavigate();
     const location = useLocation();
     const animeHook = useAnime();
+    const breadcrumbParent = typeof location.state?.breadcrumbParent === 'string'
+        ? location.state.breadcrumbParent
+        : undefined;
     const toPositiveNumber = (value: unknown): number => {
         const parsed = Number(value);
         return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
@@ -332,7 +335,7 @@ export default function AnimeDetailsPage() {
     return (
         <div className="min-h-screen bg-[#0a0a0a] pb-20 fade-in animate-in duration-300">
             {/* Banner Section */}
-            <DetailsHero anime={selectedAnime} />
+            <DetailsHero anime={selectedAnime} breadcrumbParent={breadcrumbParent} />
 
             {/* Content Section */}
             <div className="container mx-auto px-4 md:px-6 -mt-24 md:-mt-32 relative z-10">

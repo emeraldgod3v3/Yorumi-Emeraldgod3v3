@@ -6,13 +6,15 @@ import { getDisplayTitle } from '../../../../utils/titleLanguage';
 
 interface DetailsHeroProps {
     anime: Anime;
+    breadcrumbParent?: string;
 }
 
-export default function DetailsHero({ anime }: DetailsHeroProps) {
+export default function DetailsHero({ anime, breadcrumbParent }: DetailsHeroProps) {
     const navigate = useNavigate();
     const { language } = useTitleLanguage();
     const bannerImage = anime.anilist_banner_image || anime.images.jpg.large_image_url;
     const displayTitle = getDisplayTitle(anime as unknown as Record<string, unknown>, language);
+    const parentLabel = String(breadcrumbParent || '').trim();
 
     return (
         <div className="relative h-[40vh] md:h-[50vh] w-full overflow-hidden">
@@ -40,6 +42,17 @@ export default function DetailsHero({ anime }: DetailsHeroProps) {
                         <Home className="w-5 h-5 group-hover:scale-110 transition-transform" />
                     </button>
                     <ChevronRight className="w-4 h-4 text-white/35 shrink-0" />
+                    {parentLabel && (
+                        <>
+                            <button
+                                onClick={() => navigate(-1)}
+                                className="min-w-0 truncate text-sm font-bold text-white/60 transition-colors hover:text-white"
+                            >
+                                {parentLabel}
+                            </button>
+                            <ChevronRight className="w-4 h-4 text-white/35 shrink-0" />
+                        </>
+                    )}
                     <h1 className="text-sm font-bold text-white tracking-wide truncate drop-shadow-[0_2px_10px_rgba(0,0,0,0.75)]">
                         {displayTitle}
                     </h1>
