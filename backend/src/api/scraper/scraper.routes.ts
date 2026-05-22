@@ -173,18 +173,12 @@ const getStaleLatestUpdates = async (): Promise<{ latestEpisodes: any[] }> => {
 };
 
 const refreshLatestUpdatesCache = async (): Promise<{ latestEpisodes: any[] }> => {
-    let latest = await scraperService.getAnimePaheLatestUpdates(1, LATEST_HOME_LIMIT);
-    let rawLatestEpisodes: any[] = Array.isArray(latest?.data) ? latest.data : [];
-
-    if (rawLatestEpisodes.length === 0) {
-        const fallback = await reAnimeScraper.getNewReleases(1, LATEST_HOME_LIMIT);
-        rawLatestEpisodes = Array.isArray(fallback?.data) ? (fallback.data as any[]) : [];
-    }
-
+    const latest = await scraperService.getAnimePaheLatestUpdates(1, LATEST_HOME_LIMIT);
+    const rawLatestEpisodes: any[] = Array.isArray(latest?.data) ? latest.data : [];
     const latestEpisodes = await enrichAnimeKaiItemsWithFallback(rawLatestEpisodes, 2500);
     const payload = { latestEpisodes };
 
-    if (latestEpisodes.length >= LATEST_HOME_LIMIT) {
+    if (latestEpisodes.length > 0) {
         latestUpdatesMemCache = payload;
         redis.set(LATEST_REDIS_KEY, payload, { ex: CACHE_TTL_SECONDS }).catch(() => undefined);
     }
@@ -399,15 +393,9 @@ router.get('/recently-updated', async (req, res) => {
 
     res.set('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=300');
     try {
-        let result = await scraperService.getAnimePaheLatestUpdates(page, limit);
-        let rawItems: any[] = Array.isArray(result?.data) ? result.data : [];
-        let pagination = result?.pagination;
-
-        if (rawItems.length === 0) {
-            const fallback = await reAnimeScraper.getNewReleases(page, limit);
-            rawItems = Array.isArray(fallback?.data) ? (fallback.data as any[]) : [];
-            pagination = fallback?.pagination || pagination;
-        }
+        const result = await scraperService.getAnimePaheLatestUpdates(page, limit);
+        const rawItems: any[] = Array.isArray(result?.data) ? result.data : [];
+        const pagination = result?.pagination;
 
         const listItems = await enrichAnimeKaiItemsWithFallback(rawItems, 2500);
         const payload = { data: listItems, pagination };
@@ -436,15 +424,9 @@ router.get('/animekai/new-releases', async (req, res) => {
 
     res.set('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=300');
     try {
-        let result = await scraperService.getAnimePaheLatestUpdates(page, limit);
-        let rawItems: any[] = Array.isArray(result?.data) ? result.data : [];
-        let pagination = result?.pagination;
-
-        if (rawItems.length === 0) {
-            const fallback = await reAnimeScraper.getNewReleases(page, limit);
-            rawItems = Array.isArray(fallback?.data) ? (fallback.data as any[]) : [];
-            pagination = fallback?.pagination || pagination;
-        }
+        const result = await scraperService.getAnimePaheLatestUpdates(page, limit);
+        const rawItems: any[] = Array.isArray(result?.data) ? result.data : [];
+        const pagination = result?.pagination;
 
         const listItems = await enrichAnimeKaiItemsWithFallback(rawItems, 2500);
         const payload = { data: listItems, pagination };
