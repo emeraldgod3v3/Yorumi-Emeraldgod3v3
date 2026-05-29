@@ -887,39 +887,44 @@ router.get('/proxy', async (req, res) => {
         const refererCandidates = [
             requestedReferer,
             `${target.origin}/`,
+            'https://kwik.cx/',
+            'https://animepahe.pw/',
             'https://megacloud.blog/',
-        ].filter(Boolean);
+        ].filter(Boolean).filter((referer, index, list) => list.indexOf(referer) === index);
 
         let response: any = null;
         let lastError: any = null;
 
         for (const referer of refererCandidates) {
-            try {
-                response = await axios.get(targetUrl, {
-                    responseType: 'arraybuffer',
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-                        Referer: referer,
-                        Origin: new URL(referer).origin,
-                        Accept: '*/*',
-                        ...(req.headers.range ? { Range: req.headers.range } : {}),
-                        ...((requestedCookie || storedCookie) ? { Cookie: requestedCookie || storedCookie } : {}),
-                    },
-                    timeout: 15000,
-                });
+            for (const includeOrigin of [false, true]) {
+                try {
+                    response = await axios.get(targetUrl, {
+                        responseType: 'arraybuffer',
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                            Referer: referer,
+                            ...(includeOrigin ? { Origin: new URL(referer).origin } : {}),
+                            Accept: '*/*',
+                            ...(req.headers.range ? { Range: req.headers.range } : {}),
+                            ...((requestedCookie || storedCookie) ? { Cookie: requestedCookie || storedCookie } : {}),
+                        },
+                        timeout: 15000,
+                    });
 
-                const setCookie = response.headers?.['set-cookie'];
-                if (Array.isArray(setCookie) && setCookie.length > 0) {
-                    const seedCookie = requestedCookie || storedCookie;
-                    const merged = mergeCookieHeader(seedCookie, setCookie);
-                    if (merged) upstreamCookieJar.set(cookieKey, merged);
+                    const setCookie = response.headers?.['set-cookie'];
+                    if (Array.isArray(setCookie) && setCookie.length > 0) {
+                        const seedCookie = requestedCookie || storedCookie;
+                        const merged = mergeCookieHeader(seedCookie, setCookie);
+                        if (merged) upstreamCookieJar.set(cookieKey, merged);
+                    }
+                    break;
+                } catch (error: any) {
+                    lastError = error;
+                    // Retry 403/401 with the next header/referer candidate.
+                    if (![401, 403].includes(error?.response?.status)) break;
                 }
-                break;
-            } catch (error: any) {
-                lastError = error;
-                // Retry 403/401 with next referer candidate.
-                if (![401, 403].includes(error?.response?.status)) break;
             }
+            if (response || (lastError && ![401, 403].includes(lastError?.response?.status))) break;
         }
 
         if (!response) throw lastError;

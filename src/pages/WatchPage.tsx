@@ -199,14 +199,14 @@ export default function WatchPage() {
                     )}
                 </div>
 
-                <div className="flex-1 flex flex-col md:flex-row min-h-0 w-full max-w-full relative overflow-hidden gap-0 md:gap-8">
-                        <div className="w-full max-w-full md:flex-1 min-w-0 relative flex flex-col overflow-hidden items-center">
+                <div className="flex-1 flex flex-col xl:flex-row min-h-0 w-full max-w-full relative overflow-hidden gap-0 xl:gap-8">
+                        <div className="w-full max-w-full xl:flex-1 min-w-0 relative flex flex-col overflow-hidden items-center">
                             {/* Constrained Column - Ensures 16:9 ratio is never broken by viewport height */}
                             <div
-                                className={`mx-auto w-full max-w-full min-w-0 h-auto md:h-full flex flex-col gap-0 md:gap-6 ${
+                                className={`mx-auto w-full max-w-full min-w-0 h-auto xl:h-full flex flex-col gap-0 md:gap-6 ${
                                     isExpanded
-                                        ? 'md:max-w-[min(96vw,calc((100vh-248px)*1.777))]'
-                                        : 'md:max-w-[calc((100vh-252px)*1.777)]'
+                                        ? 'xl:max-w-[min(96vw,calc((100vh-248px)*1.777))]'
+                                        : 'xl:max-w-[calc((100vh-252px)*1.777)]'
                                 }`}
                             >
                                 {/* Video Player Card - Maximized & End-to-End Alignment */}
