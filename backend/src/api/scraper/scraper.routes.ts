@@ -726,9 +726,20 @@ router.get('/playable-stream', async (req, res) => {
             return res.status(404).json({ error: 'No playable stream found' });
         }
 
+        const streamReferer = (() => {
+            const streamUrl = String(result.stream?.url || '').trim();
+            try {
+                const parsed = new URL(streamUrl);
+                if (/^([^/]+\.)?kwik\./i.test(parsed.host)) return `${parsed.origin}/`;
+            } catch {
+                // Fall back to AnimePahe below.
+            }
+            return 'https://animepahe.pw/';
+        })();
+
         const url = direct
             ? result.directUrl
-            : `${getPublicBase(req)}/api/scraper/proxy?url=${encodeURIComponent(result.directUrl)}&referer=${encodeURIComponent('https://animepahe.pw/')}&proxyMedia=1`;
+            : `${getPublicBase(req)}/api/scraper/proxy?url=${encodeURIComponent(result.directUrl)}&referer=${encodeURIComponent(streamReferer)}&proxyMedia=1`;
 
         res.set('Cache-Control', 'no-store');
         return res.json({ stream: result.stream, url });
