@@ -971,7 +971,76 @@ export class AnimePaheScraper {
         return url;
     }
 
+    private decodePackedString(value: string): string {
+        return Function(`"use strict"; return '${value}';`)();
+    }
+
+    private unpackJsPacker(script: string): string | null {
+        const match = script.match(/eval\(function\(p,a,c,k,e,d\)\{[\s\S]*?\}\('((?:\\'|[^'])*)',(\d+),(\d+),'((?:\\'|[^'])*)'\.split\('\|'\),0,\{\}\)\)/);
+        if (!match) return null;
+
+        let payload = this.decodePackedString(match[1]);
+        const radix = Number(match[2]);
+        let count = Number(match[3]);
+        const symbols = this.decodePackedString(match[4]).split('|');
+
+        const encode = (value: number): string => (
+            value < radix ? '' : encode(Math.floor(value / radix))
+        ) + ((value = value % radix) > 35 ? String.fromCharCode(value + 29) : value.toString(36));
+
+        while (count--) {
+            const key = encode(count);
+            const replacement = symbols[count] || key;
+            if (replacement) {
+                payload = payload.replace(new RegExp(`\\b${key}\\b`, 'g'), replacement);
+            }
+        }
+
+        return payload;
+    }
+
+    private extractM3u8FromKwikHtml(html: string): string | null {
+        const directMatch = html.match(/https?:\/\/[^'"\s<>]+\.m3u8[^'"\s<>]*/i);
+        if (directMatch?.[0]) return directMatch[0];
+
+        const packedScripts = html.match(/eval\(function\(p,a,c,k,e,d\)\{[\s\S]*?\}\('(?:\\'|[^'])*',\d+,\d+,'(?:\\'|[^'])*'\.split\('\|'\),0,\{\}\)\)/g) || [];
+        for (const script of packedScripts) {
+            const unpacked = this.unpackJsPacker(script);
+            if (!unpacked) continue;
+
+            const urlMatch =
+                unpacked.match(/\bsource\s*=\s*['"]([^'"]+\.m3u8[^'"]*)['"]/i) ||
+                unpacked.match(/https?:\/\/[^'"\s<>]+\.m3u8[^'"\s<>]*/i);
+            const resolvedUrl = urlMatch?.[1] || urlMatch?.[0];
+            if (resolvedUrl) return resolvedUrl;
+        }
+
+        return null;
+    }
+
+    private async resolveKwikFast(url: string): Promise<string | null> {
+        try {
+            const response = await axios.get(url, {
+                headers: {
+                    'User-Agent': this.requestHeaders['User-Agent'],
+                    Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    Referer: 'https://animepahe.pw/',
+                    Origin: 'https://animepahe.pw',
+                },
+                responseType: 'text',
+                timeout: 15000,
+            });
+
+            return this.extractM3u8FromKwikHtml(String(response.data || ''));
+        } catch {
+            return null;
+        }
+    }
+
     private async resolveKwik(url: string): Promise<string | null> {
+        const fast = await this.resolveKwikFast(url);
+        if (fast) return fast;
+
         const browser = await this.getBrowser();
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');

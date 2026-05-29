@@ -666,6 +666,7 @@ export class ScraperService {
         const stream = [...streams].sort((a, b) => scoreStream(b) - scoreStream(a))[0];
         const directUrl = await this.fastScraper.resolveStreamUrl(stream);
         if (!directUrl) return null;
+        if (/^https?:\/\/([^/]+\.)?kwik\./i.test(directUrl)) return null;
 
         return { stream, directUrl };
     }
