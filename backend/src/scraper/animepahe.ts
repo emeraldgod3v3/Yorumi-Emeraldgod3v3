@@ -957,14 +957,27 @@ export class AnimePaheScraper {
         }
     }
 
+    async resolveStreamUrl(stream: StreamLink): Promise<string> {
+        const directUrl = String(stream.directUrl || '').trim();
+        if (directUrl) return directUrl;
+
+        const url = String(stream.url || '').trim();
+        if (!url) return '';
+
+        if (/^https?:\/\/([^/]+\.)?kwik\./i.test(url)) {
+            return await this.resolveKwik(url) || url;
+        }
+
+        return url;
+    }
+
     private async resolveKwik(url: string): Promise<string | null> {
         const browser = await this.getBrowser();
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-        // Kwik needs referer
         await page.setExtraHTTPHeaders({
-            'referer': 'https://kwik.cx/',
-            'origin': 'https://kwik.cx'
+            'referer': 'https://animepahe.pw/',
+            'origin': 'https://animepahe.pw'
         });
 
         try {
@@ -1000,26 +1013,27 @@ export class AnimePaheScraper {
             if (directUrl) return directUrl;
 
             // If not found, use regex on the content
-            const packedMatch = content.match(/eval\(function\(p,a,c,k,e,d\)\{.*\}\(.*\)\)/);
-            if (packedMatch) {
-                // We can't easily unpack in Node without a library, but we can try to evaluate it in the browser!
-                const solved = await page.evaluate((packed) => {
+            const packedMatches = content.match(/eval\(function\(p,a,c,k,e,d\)\{[\s\S]*?\}\('[\s\S]*?\.split\('\|'\),0,\{\}\)\)/g) || [];
+            for (const packed of packedMatches) {
+                const solved = await page.evaluate((packedScript) => {
                     try {
-                        // Override eval to capture the result
                         let result = '';
                         const originalEval = window.eval;
                         (window as any).eval = (s: string) => { result = s; return originalEval(s); };
-                        originalEval(packed);
+                        originalEval(packedScript);
                         (window as any).eval = originalEval;
                         return result;
                     } catch (e) {
                         return null;
                     }
-                }, packedMatch[0]);
+                }, packed);
 
                 if (solved) {
-                    const urlMatch = solved.match(/source=['"](.*?)['"]/);
-                    if (urlMatch) return urlMatch[1];
+                    const urlMatch =
+                        solved.match(/\bsource\s*=\s*['"]([^'"]+\.m3u8[^'"]*)['"]/i) ||
+                        solved.match(/(https?:\/\/[^'"\s]+\.m3u8[^'"\s]*)/i);
+                    const resolvedUrl = urlMatch?.[1] || urlMatch?.[0];
+                    if (resolvedUrl) return resolvedUrl;
                 }
             }
 

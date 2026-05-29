@@ -30,3 +30,6 @@ win-unpacked
 
 .env
 backend/.env
+
+# Separate repository
+yorumi-cli/

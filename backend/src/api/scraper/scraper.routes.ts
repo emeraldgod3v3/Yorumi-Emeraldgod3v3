@@ -875,6 +875,7 @@ router.get('/proxy', async (req, res) => {
     const targetUrl = req.query.url as string;
     const requestedReferer = (req.query.referer as string) || '';
     const requestedCookie = sanitizeCookie((req.query.cookie as string) || '');
+    const proxyMediaSegments = String(req.query.proxyMedia || '').trim() === '1';
 
     if (!targetUrl) {
         return res.status(400).send('Missing url parameter');
@@ -980,7 +981,9 @@ router.get('/proxy', async (req, res) => {
                 lower.endsWith('.mp4') ||
                 lower.endsWith('.m4s') ||
                 lower.endsWith('.cmaf') ||
-                lower.endsWith('.fmp4')
+                lower.endsWith('.fmp4') ||
+                lower.endsWith('.jpg') ||
+                lower.endsWith('.jpeg')
             );
         };
 
@@ -996,7 +999,7 @@ router.get('/proxy', async (req, res) => {
                         const absoluteUri = uri.startsWith('http')
                             ? uri
                             : (uri.startsWith('/') ? `${urlObj.origin}${uri}` : `${basePath}${uri}`);
-                        return `URI="${getPublicBase(req)}/api/scraper/proxy?url=${encodeURIComponent(absoluteUri)}&referer=${encodeURIComponent(nextReferer)}${nextCookie ? `&cookie=${encodeURIComponent(nextCookie)}` : ''}"`;
+                        return `URI="${getPublicBase(req)}/api/scraper/proxy?url=${encodeURIComponent(absoluteUri)}&referer=${encodeURIComponent(nextReferer)}${nextCookie ? `&cookie=${encodeURIComponent(nextCookie)}` : ''}${proxyMediaSegments ? '&proxyMedia=1' : ''}"`;
                     });
                 }
 
@@ -1006,10 +1009,16 @@ router.get('/proxy', async (req, res) => {
                     ? trimmed
                     : (trimmed.startsWith('/') ? `${urlObj.origin}${trimmed}` : `${basePath}${trimmed}`);
 
+                const proxySuffix = `&referer=${encodeURIComponent(nextReferer)}${nextCookie ? `&cookie=${encodeURIComponent(nextCookie)}` : ''}${proxyMediaSegments ? '&proxyMedia=1' : ''}`;
+
+                if (proxyMediaSegments && isMediaSegment(trimmed)) {
+                    return `${getPublicBase(req)}/api/scraper/proxy?url=${encodeURIComponent(absolute)}${proxySuffix}`;
+                }
+
                 // Sub-playlist (.m3u8) lines must pass through the proxy for CORS.
-                // Media segments (.ts etc.) are served directly from the upstream CDN.
+                // Media segments are direct unless proxyMedia=1 is requested by CLI/mpv.
                 if (!isMediaSegment(trimmed) && (trimmed.toLowerCase().includes('.m3u8') || !trimmed.toLowerCase().split('?')[0].includes('.'))) {
-                    return `${getPublicBase(req)}/api/scraper/proxy?url=${encodeURIComponent(absolute)}&referer=${encodeURIComponent(nextReferer)}${nextCookie ? `&cookie=${encodeURIComponent(nextCookie)}` : ''}`;
+                    return `${getPublicBase(req)}/api/scraper/proxy?url=${encodeURIComponent(absolute)}${proxySuffix}`;
                 }
 
                 // Direct absolute URL for media segments — browser fetches from CDN, not Vercel.
