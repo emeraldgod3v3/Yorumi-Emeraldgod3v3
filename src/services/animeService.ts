@@ -312,7 +312,7 @@ const scraperSearchCache = new Map<string, { data: any[]; timestamp: number }>()
 const SCRAPER_SEARCH_TTL = 5 * 60 * 1000;
 const AZ_LIST_CACHE_TTL = 10 * 60 * 1000;
 const PERSISTED_CACHE_PREFIX = 'yorumi_api_cache_v6';
-const STREAM_CACHE_VERSION = 'v7';
+const STREAM_CACHE_VERSION = 'v8';
 const PERSISTED_STREAM_CACHE_PREFIX = `yorumi_stream_cache_${STREAM_CACHE_VERSION}`;
 
 const readPersistedCache = (key: string, ttl: number) => {
@@ -1145,6 +1145,8 @@ export const animeService = {
 
         const fetchPromise = (async () => {
             try {
+
+
                 const { data } = await apiClient.get('/scraper/streams', {
                     params: {
                         anime_session: animeSession,
@@ -1170,10 +1172,11 @@ export const animeService = {
                 const filtered = Array.isArray(normalized) && extractAnimePaheSession(animeSession)
                     ? normalized.filter((item: any) => isAnimePaheOnlyStream(item))
                     : normalized;
-                if (Array.isArray(filtered) && filtered.length > 0) {
-                    setCachedStream(cacheKey, filtered);
+                const resolved = filtered;
+                if (Array.isArray(resolved) && resolved.length > 0) {
+                    setCachedStream(cacheKey, resolved);
                 }
-                return filtered;
+                return resolved;
             } finally {
                 inFlightRequests.delete(cacheKey);
             }

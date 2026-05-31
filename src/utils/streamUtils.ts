@@ -28,8 +28,8 @@ export const getStreamData = async (
             const directUrl = String(stream.directUrl || '');
             const hasDirectUrl = Boolean(directUrl);
             const isHls = Boolean(stream.isHls) || url.includes('.m3u8') || directUrl.includes('.m3u8');
-            const isIframeLike = /vidsrc|vidstream|megacloud|embed/i.test(url) && !hasDirectUrl && !isHls;
-            return (isHls ? 1_000_000 : 0) + (hasDirectUrl ? 100_000 : 0) + (isIframeLike ? -10_000 : 0) + quality;
+            const isIframeLike = /vidsrc|vidstream|megacloud|embed|kwik/i.test(url) || !isHls;
+            return (isIframeLike ? 1_000_000 : 0) + (hasDirectUrl ? -100_000 : 0) + (isHls ? -1_000_000 : 0) + quality;
         };
 
         const qualityMap = new Map<string, StreamLink>();

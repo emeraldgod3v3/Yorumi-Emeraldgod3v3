@@ -159,15 +159,22 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
 
     // Fetch Anime if missing
     useEffect(() => {
+        const currentId = String(animeId || '');
+        const currentSession = extractDirectScraperSession(currentId);
+
         // Prevent re-fetching if we already have the correct anime loaded
-        if (selectedAnime && (String(selectedAnime.id) === String(animeId) || String(selectedAnime.mal_id) === String(animeId))) {
+        if (selectedAnime && (
+            String(selectedAnime.id) === currentId ||
+            String(selectedAnime.mal_id) === currentId ||
+            (!!currentSession && extractDirectScraperSession(selectedAnime.scraperId) === currentSession)
+        )) {
             return;
         }
 
         if (location.state?.anime) {
             handleAnimeClick(location.state.anime);
         } else if (animeId) {
-            const directScraperSession = extractDirectScraperSession(animeId);
+            const directScraperSession = currentSession;
             const ids = isNaN(Number(animeId)) ? animeId : parseInt(animeId);
             const fallbackTitle = decodeSlugTitle(animeSlugTitle);
             handleAnimeClick({
@@ -177,7 +184,7 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
                 title: fallbackTitle || String(animeId),
             } as Anime);
         }
-    }, [animeId, animeSlugTitle, location.state, selectedAnime]);
+    }, [animeId, animeSlugTitle, location.state, selectedAnime?.id, selectedAnime?.mal_id, selectedAnime?.scraperId]);
 
     // Auto-load Episode
     useEffect(() => {

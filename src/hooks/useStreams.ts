@@ -41,11 +41,11 @@ export function useStreams(scraperSession: string | null) {
         const directUrl = String(stream.directUrl || '');
         const hasDirectUrl = Boolean(directUrl);
         const isHls = Boolean(stream.isHls) || url.includes('.m3u8') || directUrl.includes('.m3u8');
-        const isIframeLike = /vidsrc|vidstream|megacloud|embed/i.test(url) && !hasDirectUrl && !isHls;
+        const isIframeLike = /vidsrc|vidstream|megacloud|embed|kwik/i.test(url) || !isHls;
 
-        return (isHls ? 1_000_000 : 0)
-            + (hasDirectUrl ? 100_000 : 0)
-            + (isIframeLike ? -10_000 : 0)
+        return (isIframeLike ? 1_000_000 : 0)
+            + (hasDirectUrl ? -100_000 : 0)
+            + (isHls ? -1_000_000 : 0)
             + quality;
     }, []);
 
