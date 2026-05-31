@@ -254,8 +254,9 @@ const buildEmbedAssetProxyUrl = (req: any, targetUrl: string) => {
     return `${getPublicBase(req)}/api/scraper/embed-asset?url=${encodeURIComponent(target.toString())}${hash}`;
 };
 
-const patchEmbedHtml = (req: any, html: string, origin: string) => {
+const patchEmbedHtml = (req: any, html: string, origin: string, embedReferer: string) => {
     const hostBase = getPublicBase(req);
+    const mediaReferer = String(embedReferer || '').trim() || `${origin}/`;
     const toAbsolute = (value: string) => {
         const raw = String(value || '').trim();
         if (!raw || raw.startsWith('#') || raw.startsWith('data:') || raw.startsWith('blob:') || raw.startsWith('javascript:')) {
@@ -269,7 +270,7 @@ const patchEmbedHtml = (req: any, html: string, origin: string) => {
         const absolute = toAbsolute(value);
         if (!/^https?:\/\//i.test(absolute)) return value;
         if (/\.m3u8(?:[?#]|$)/i.test(absolute)) {
-            return buildScraperProxyUrl(req, absolute, `${origin}/`, true);
+            return buildScraperProxyUrl(req, absolute, mediaReferer, true);
         }
         return new URL(absolute).origin === origin ? buildEmbedAssetProxyUrl(req, absolute) : absolute;
     };
@@ -279,6 +280,7 @@ const patchEmbedHtml = (req: any, html: string, origin: string) => {
 (() => {
   const origin = ${JSON.stringify(origin)};
   const hostBase = ${JSON.stringify(hostBase)};
+  const mediaReferer = ${JSON.stringify(mediaReferer)};
   const proxied = /\\/api\\/scraper\\/(?:proxy|embed-asset)\\?/i;
   const isStreamMedia = (absolute) => {
     try {
@@ -302,7 +304,7 @@ const patchEmbedHtml = (req: any, html: string, origin: string) => {
     const absolute = toAbsolute(value);
     if (!/^https?:\\/\\//i.test(absolute) || proxied.test(absolute)) return value;
     if (/\\.m3u8(?:[?#]|$)/i.test(absolute) || isStreamMedia(absolute)) {
-      return hostBase + '/api/scraper/proxy?url=' + encodeURIComponent(absolute) + '&referer=' + encodeURIComponent(origin + '/') + '&proxyMedia=1';
+      return hostBase + '/api/scraper/proxy?url=' + encodeURIComponent(absolute) + '&referer=' + encodeURIComponent(mediaReferer) + '&proxyMedia=1';
     }
     if (new URL(absolute).origin === origin) {
       const parsed = new URL(absolute);
@@ -742,7 +744,7 @@ router.get('/playable-stream', async (req, res) => {
             const streamUrl = String(result.stream?.url || '').trim();
             try {
                 const parsed = new URL(streamUrl);
-                if (/^([^/]+\.)?kwik\./i.test(parsed.host)) return `${parsed.origin}/`;
+                if (/^([^/]+\.)?kwik\./i.test(parsed.host)) return streamUrl;
             } catch {
                 // Fall back to AnimePahe below.
             }
@@ -857,7 +859,7 @@ router.get('/embed', async (req, res) => {
 
         if (!html) throw lastError || new Error('Embed host returned no HTML');
 
-        const patchedHtml = patchEmbedHtml(req, html, target.origin);
+        const patchedHtml = patchEmbedHtml(req, html, target.origin, target.toString());
 
         res.status(status);
         res.set('Content-Type', 'text/html; charset=utf-8');
