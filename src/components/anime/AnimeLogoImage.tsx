@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { API_BASE } from '../../config/api';
+import { setLocalStorageWithCleanup } from '../../utils/localStorageQuota';
 
 interface AnimeLogoImageProps {
     anilistId?: number | null;
@@ -53,9 +54,14 @@ function persistCache() {
     if (saveTimeout) clearTimeout(saveTimeout);
     saveTimeout = setTimeout(() => {
         try {
+            while (logoCache.size > 250) {
+                const oldestKey = logoCache.keys().next().value;
+                if (!oldestKey) break;
+                logoCache.delete(oldestKey);
+            }
             const obj: Record<string, string | null> = {};
             logoCache.forEach((v, k) => { obj[k] = v; });
-            localStorage.setItem(LOGO_CACHE_KEY, JSON.stringify(obj));
+            setLocalStorageWithCleanup(LOGO_CACHE_KEY, JSON.stringify(obj));
             console.log('[LogoCache] Persisted to storage');
         } catch (e) {
             console.warn('[LogoCache] Failed to persist:', e);

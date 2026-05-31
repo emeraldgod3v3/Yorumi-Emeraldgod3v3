@@ -6,6 +6,7 @@ import { db, isFirebaseEnabled } from "./firebase";
 import { API_BASE } from "../config/api";
 import { getDisplayImageUrl } from "../utils/image";
 import { isAnimePaheSessionId, isSupportedScraperSessionId } from "../utils/animeNavigation";
+import { setLocalStorageWithCleanup } from "../utils/localStorageQuota";
 
 const apiClient = axios.create({
     baseURL: API_BASE,
@@ -332,7 +333,7 @@ const readPersistedCache = (key: string, ttl: number) => {
 
 const writePersistedCache = (key: string, data: any, timestamp: number) => {
     try {
-        localStorage.setItem(
+        setLocalStorageWithCleanup(
             `${PERSISTED_CACHE_PREFIX}:${key}`,
             JSON.stringify({ data, timestamp })
         );

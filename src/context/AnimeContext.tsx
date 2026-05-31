@@ -7,6 +7,7 @@ import { preloadLogos } from '../components/anime/AnimeLogoImage';
 import { useAuth } from './AuthContext';
 import { getDisplayImageUrl } from '../utils/image';
 import { isAnimePaheSessionId, isSupportedScraperSessionId } from '../utils/animeNavigation';
+import { setLocalStorageWithCleanup } from '../utils/localStorageQuota';
 
 interface AnimeContextType {
     // State
@@ -297,7 +298,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
     };
     const writeHomeCache = (key: string, data: unknown) => {
         try {
-            localStorage.setItem(
+            setLocalStorageWithCleanup(
                 `${HOME_CACHE_PREFIX}:${key}`,
                 JSON.stringify({ timestamp: Date.now(), data })
             );
@@ -591,8 +592,6 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
         }
 
         const hasAnimeItems = (items: Anime[] | undefined | null) => Array.isArray(items) && items.length > 0;
-        const hasLatestItems = (items: Anime[] | undefined | null) =>
-            Array.isArray(items) && items.length >= HOME_LATEST_MIN_ITEMS;
         const hasTopTenItems = (fast: any) =>
             Array.isArray(fast?.topTenToday) && fast.topTenToday.length > 0
             && Array.isArray(fast?.topTenWeek) && fast.topTenWeek.length > 0
@@ -676,13 +675,13 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
         };
 
         const fetchLatestUpdates = async () => {
-            if (latestUpdates.length >= HOME_LATEST_MIN_ITEMS) return;
+            const hasEnoughLatest = latestUpdates.length >= HOME_LATEST_MIN_ITEMS;
             const cached = readHomeCache<Anime[]>('latest-updates', HOME_TTL.latestUpdates);
-            if (cached && cached.length >= HOME_LATEST_MIN_ITEMS) {
+            if (!hasEnoughLatest && cached && cached.length >= HOME_LATEST_MIN_ITEMS) {
                 setLatestUpdates(cached);
                 setLatestUpdatesLoading(false);
                 preloadLogos(cached.map((a: Anime) => a.id || a.mal_id).filter(Boolean));
-            } else {
+            } else if (!hasEnoughLatest) {
                 setLatestUpdatesLoading(true);
             }
             try {
@@ -768,9 +767,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
         if (!hasAnimeItems(fastBundle?.spotlightAnime)) {
             tasks.push(fetchSpotlight());
         }
-        if (!hasLatestItems(fastBundle?.latestUpdates)) {
-            tasks.push(fetchLatestUpdates());
-        }
+        tasks.push(fetchLatestUpdates());
         if (!hasAnimeItems(fastBundle?.trendingAnime)) {
             tasks.push(fetchTrending());
         }

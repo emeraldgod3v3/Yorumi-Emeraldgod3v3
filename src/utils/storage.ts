@@ -1,5 +1,6 @@
 import { collection, deleteDoc, doc, getDoc, getDocs, increment, orderBy, query, setDoc } from 'firebase/firestore';
 import { auth, db, isFirebaseEnabled } from '../services/firebase';
+import { setLocalStorageWithCleanup } from './localStorageQuota';
 
 export interface WatchProgress {
     animeId: string;
@@ -144,7 +145,9 @@ const setScopedItemForUid = (key: string, value: string, uidOverride?: string | 
     storageMemoryCache.set(scopedKey, value);
 
     try {
-        localStorage.setItem(scopedKey, value);
+        if (!setLocalStorageWithCleanup(scopedKey, value)) {
+            throw new Error('localStorage quota cleanup did not free enough space');
+        }
     } catch (error) {
         console.warn(`Failed to persist ${scopedKey} to localStorage; keeping in memory only.`, error);
     }
