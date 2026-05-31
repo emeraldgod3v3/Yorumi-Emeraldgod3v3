@@ -236,12 +236,12 @@ const buildKwikEmbedProxyUrl = (req: any, targetUrl: string) => {
     return `${getPublicBase(req)}/api/scraper/embed?url=${encodeURIComponent(safeUrl)}`;
 };
 
-const buildScraperProxyUrl = (req: any, targetUrl: string, referer = '') => {
+const buildScraperProxyUrl = (req: any, targetUrl: string, referer = '', proxyMedia = false) => {
     const safeUrl = String(targetUrl || '').trim();
     if (!safeUrl || !/^https?:\/\//i.test(safeUrl)) return safeUrl;
 
     const safeReferer = String(referer || '').trim();
-    return `${getPublicBase(req)}/api/scraper/proxy?url=${encodeURIComponent(safeUrl)}${safeReferer ? `&referer=${encodeURIComponent(safeReferer)}` : ''}`;
+    return `${getPublicBase(req)}/api/scraper/proxy?url=${encodeURIComponent(safeUrl)}${safeReferer ? `&referer=${encodeURIComponent(safeReferer)}` : ''}${proxyMedia ? '&proxyMedia=1' : ''}`;
 };
 
 const buildEmbedAssetProxyUrl = (req: any, targetUrl: string) => {
@@ -268,6 +268,9 @@ const patchEmbedHtml = (req: any, html: string, origin: string) => {
     const proxyUrl = (value: string) => {
         const absolute = toAbsolute(value);
         if (!/^https?:\/\//i.test(absolute)) return value;
+        if (/\.m3u8(?:[?#]|$)/i.test(absolute)) {
+            return buildScraperProxyUrl(req, absolute, `${origin}/`, true);
+        }
         return new URL(absolute).origin === origin ? buildEmbedAssetProxyUrl(req, absolute) : absolute;
     };
 
@@ -299,7 +302,7 @@ const patchEmbedHtml = (req: any, html: string, origin: string) => {
     const absolute = toAbsolute(value);
     if (!/^https?:\\/\\//i.test(absolute) || proxied.test(absolute)) return value;
     if (/\\.m3u8(?:[?#]|$)/i.test(absolute) || isStreamMedia(absolute)) {
-      return absolute;
+      return hostBase + '/api/scraper/proxy?url=' + encodeURIComponent(absolute) + '&referer=' + encodeURIComponent(origin + '/') + '&proxyMedia=1';
     }
     if (new URL(absolute).origin === origin) {
       const parsed = new URL(absolute);
