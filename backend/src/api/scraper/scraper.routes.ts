@@ -268,9 +268,7 @@ const patchEmbedHtml = (req: any, html: string, origin: string) => {
     const proxyUrl = (value: string) => {
         const absolute = toAbsolute(value);
         if (!/^https?:\/\//i.test(absolute)) return value;
-        return /\.m3u8(?:[?#]|$)/i.test(absolute)
-            ? buildScraperProxyUrl(req, absolute, `${origin}/`)
-            : (new URL(absolute).origin === origin ? buildEmbedAssetProxyUrl(req, absolute) : absolute);
+        return new URL(absolute).origin === origin ? buildEmbedAssetProxyUrl(req, absolute) : absolute;
     };
 
     const proxyRuntime = `
@@ -300,11 +298,8 @@ const patchEmbedHtml = (req: any, html: string, origin: string) => {
   const proxify = (value) => {
     const absolute = toAbsolute(value);
     if (!/^https?:\\/\\//i.test(absolute) || proxied.test(absolute)) return value;
-    if (/\\.m3u8(?:[?#]|$)/i.test(absolute)) {
-      return hostBase + '/api/scraper/proxy?url=' + encodeURIComponent(absolute) + '&referer=' + encodeURIComponent(origin + '/');
-    }
-    if (isStreamMedia(absolute)) {
-      return hostBase + '/api/scraper/proxy?url=' + encodeURIComponent(absolute) + '&referer=' + encodeURIComponent(origin + '/');
+    if (/\\.m3u8(?:[?#]|$)/i.test(absolute) || isStreamMedia(absolute)) {
+      return absolute;
     }
     if (new URL(absolute).origin === origin) {
       const parsed = new URL(absolute);
@@ -353,7 +348,7 @@ const patchEmbedHtml = (req: any, html: string, origin: string) => {
 })();
 </script>`;
 
-    const cleaned = String(html || '')
+    const rewriteNonScriptHtml = (chunk: string) => chunk
         .replace(/<meta[^>]+http-equiv=["']?content-security-policy["']?[^>]*>/gi, '')
         .replace(/<meta[^>]+content=["'][^"']*frame-ancestors[^"']*["'][^>]*>/gi, '')
         .replace(/\b(src|href|action)=["']([^"']+)["']/gi, (_match, attr, value) => `${attr}="${proxyUrl(value)}"`)
@@ -365,6 +360,11 @@ const patchEmbedHtml = (req: any, html: string, origin: string) => {
             const proxied = buildEmbedAssetProxyUrl(req, new URL(value, `${origin}/`).toString());
             return `${quote}${proxied}${quote}`;
         });
+
+    const cleaned = String(html || '')
+        .split(/(<script\b[\s\S]*?<\/script>)/gi)
+        .map((chunk) => /^<script\b/i.test(chunk) ? chunk : rewriteNonScriptHtml(chunk))
+        .join('');
     return cleaned.includes('<head')
         ? cleaned.replace(/<head([^>]*)>/i, `<head$1><base href="${origin}/">${proxyRuntime}`)
         : `<base href="${origin}/">${proxyRuntime}${cleaned}`;
