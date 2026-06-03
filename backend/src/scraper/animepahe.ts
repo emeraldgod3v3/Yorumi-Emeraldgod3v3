@@ -139,12 +139,10 @@ export class AnimePaheScraper {
         }
     }
 
-    async search(query: string): Promise<AnimeSearchResult[]> {
-        const searchUrl = `${API_URL}?m=search&q=${encodeURIComponent(query)}`;
-
-        const apiResponse = await this.fetchApiJson(searchUrl);
-        if (apiResponse && Array.isArray(apiResponse.data)) {
-            return apiResponse.data.map((item: any) => ({
+    private mapSearchApiItems(items: any[]): AnimeSearchResult[] {
+        return (Array.isArray(items) ? items : [])
+            .filter((item: any) => item?.session && item?.title)
+            .map((item: any) => ({
                 id: item.id,
                 session: item.session,
                 title: item.title,
@@ -156,9 +154,41 @@ export class AnimePaheScraper {
                 year: item.year,
                 score: item.score
             }));
+    }
+
+    async search(query: string): Promise<AnimeSearchResult[]> {
+        const searchUrl = `${API_URL}?m=search&q=${encodeURIComponent(query)}`;
+
+        const apiResponse = await this.fetchApiJson(searchUrl);
+        if (apiResponse && Array.isArray(apiResponse.data)) {
+            return this.mapSearchApiItems(apiResponse.data);
         }
 
-        return [];
+        const browser = await this.getBrowser();
+        const page = await browser.newPage();
+        await page.setUserAgent(this.requestHeaders['User-Agent']);
+
+        try {
+            await page.goto(BASE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await this.waitForChallengeBypass(page);
+            const browserApiResponse = await page.evaluate(async (searchQuery) => {
+                const response = await fetch(`/api?m=search&q=${encodeURIComponent(searchQuery)}`, {
+                    headers: {
+                        Accept: 'application/json, text/javascript, */*; q=0.01',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                });
+                if (!response.ok) return null;
+                return await response.json();
+            }, query);
+
+            return this.mapSearchApiItems(browserApiResponse?.data);
+        } catch (error) {
+            console.error('AnimePahe browser search failed:', error);
+            return [];
+        } finally {
+            await page.close();
+        }
     }
 
     private mapLatestReleaseApiItems(items: any[]): LatestRelease[] {

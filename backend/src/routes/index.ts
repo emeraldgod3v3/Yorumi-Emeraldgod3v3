@@ -12,6 +12,19 @@ import mappingRoutes from '../modules/mapping/mapping.routes';
 
 const router = Router();
 
+router.get('/', (_req, res) => {
+    res.json({
+        success: true,
+        data: {
+            message: 'Yorumi API is running',
+            endpoints: {
+                scraper: '/api/scraper',
+                animePaheSearch: '/api/scraper/search/animepahe?q=naruto',
+            },
+        },
+    });
+});
+
 router.use('/anilist', anilistRoutes);
 router.use('/chat', yumiChatRoutes);
 router.use('/scraper', legacyScraperRoutes);
