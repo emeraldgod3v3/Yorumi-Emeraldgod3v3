@@ -625,7 +625,7 @@ export const animeService = {
     },
 
     async getLatestUpdatesPage(page: number = 1, limit: number = 18): Promise<LatestUpdatesPageResult> {
-        const cacheKey = `animepahe-card-latest-updates-page-v6-${page}-${limit}`;
+        const cacheKey = `animepahe-card-latest-updates-page-v7-${page}-${limit}`;
         const cached = getCached(cacheKey, DETAIL_CACHE_TTL);
         if (cached) return cached;
         const staleCached = getStaleCached(cacheKey);
@@ -639,7 +639,7 @@ export const animeService = {
                 const res = await fetchJsonWithTimeout(
                     `${API_BASE}/scraper/recently-updated?page=${page}&limit=${limit}`,
                     {},
-                    4000
+                    8000
                 );
                 if (!res.ok) {
                     throw new Error(`Failed to fetch latest updates page: ${res.statusText}`);

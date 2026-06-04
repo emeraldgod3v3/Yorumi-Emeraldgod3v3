@@ -24,6 +24,8 @@ interface CustomVideoControlsProps {
 
 const PLAYBACK_SPEEDS = [0.25, 1, 1.25, 1.5, 2];
 const QUALITY_OPTIONS = ['1080P', '720P', '360P'];
+const GLASS_BUTTON_CLASS = 'watch-control-glass rounded-full flex items-center justify-center text-white transition-colors shadow-[0_8px_28px_rgba(0,0,0,0.28)]';
+const GLASS_PANEL_CLASS = 'watch-control-glass rounded-full text-white shadow-[0_8px_28px_rgba(0,0,0,0.28)]';
 
 export default function CustomVideoControls({
     videoRef,
@@ -327,7 +329,7 @@ export default function CustomVideoControls({
                         <div className="flex items-center gap-2">
                             <button 
                                 onClick={togglePlay} 
-                                className="bg-[#2A2322]/90 backdrop-blur-md rounded-full w-12 h-10 flex items-center justify-center text-white hover:bg-white/20 border border-white/5 transition-colors shadow-lg"
+                                className={`${GLASS_BUTTON_CLASS} w-12 h-10`}
                             >
                                 {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
                             </button>
@@ -336,13 +338,13 @@ export default function CustomVideoControls({
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); adjacentHandler(); }}
                                     title={hasNextEpisode ? 'Next Episode' : 'Previous Episode'}
-                                    className="bg-[#2A2322]/90 backdrop-blur-md rounded-full w-12 h-10 flex items-center justify-center text-white hover:bg-white/20 border border-white/5 transition-colors shadow-lg"
+                                    className={`${GLASS_BUTTON_CLASS} w-12 h-10`}
                                 >
                                     <AdjacentIcon className="w-5 h-5 fill-current" />
                                 </button>
                             )}
                             
-                            <div className="group/volume flex items-center bg-[#2A2322]/90 backdrop-blur-md rounded-full h-10 text-white hover:bg-white/10 border border-white/5 transition-all duration-300 shadow-lg overflow-hidden w-12 hover:w-32">
+                            <div className={`${GLASS_PANEL_CLASS} group/volume flex items-center h-10 transition-all duration-300 overflow-hidden w-12 hover:w-32`}>
                                 <button 
                                     onClick={toggleMute} 
                                     className="w-12 h-10 flex-shrink-0 flex items-center justify-center"
@@ -367,13 +369,13 @@ export default function CustomVideoControls({
                                 />
                             </div>
 
-                            <div className="bg-[#2A2322]/90 backdrop-blur-md rounded-full px-4 h-10 flex items-center justify-center text-white text-xs font-medium tracking-wider border border-white/5 shadow-lg">
+                            <div className={`${GLASS_PANEL_CLASS} px-4 h-10 flex items-center justify-center text-xs font-medium tracking-wider`}>
                                 {formatTime(currentTime)} / {formatTime(duration)}
                             </div>
                         </div>
 
                         {/* Right Controls */}
-                        <div className="flex items-center gap-1 bg-[#2A2322]/90 backdrop-blur-md rounded-full px-3 h-10 border border-white/5 shadow-lg relative">
+                        <div className={`${GLASS_PANEL_CLASS} flex items-center gap-1 px-3 h-10 relative`}>
                             {/* Settings Popover */}
                             {showSettings && (
                                 <div className="absolute bottom-full right-0 mb-4 w-72 bg-[#1A1A1A]/95 backdrop-blur-xl rounded-2xl p-2 shadow-2xl border border-white/10 z-50">

@@ -730,16 +730,15 @@ export class AllMangaScraper {
     async getLatestUpdates(page: number = 1, limit: number = 18) {
         const safePage = Math.max(1, Math.floor(Number(page) || 1));
         const safeLimit = Math.max(1, Math.floor(Number(limit) || 18));
-        const targetStart = (safePage - 1) * safeLimit;
-        const targetEnd = targetStart + safeLimit;
         const rawLimit = Math.max(40, safeLimit * 3);
         const filteredItems: Array<AnimeSearchResult & Record<string, unknown>> = [];
-        let currentRawPage = 1;
+        let currentRawPage = safePage;
         let latestPageInfo: any = {};
         let totalResults = 0;
         let hasNextPage = true;
+        let scannedPages = 0;
 
-        while (filteredItems.length < targetEnd && hasNextPage) {
+        while (filteredItems.length < safeLimit && hasNextPage && scannedPages < 4) {
             const { edges, pageInfo } = await this.fetchLatestUpdatesPage(currentRawPage, rawLimit);
             latestPageInfo = pageInfo;
             totalResults = totalResults || Number(pageInfo?.total || 0);
@@ -748,10 +747,11 @@ export class AllMangaScraper {
             const validItems = await this.filterLatestUpdatesWithImages(edges);
             filteredItems.push(...validItems);
             currentRawPage += 1;
+            scannedPages += 1;
             hasNextPage = pageInfo?.hasNextPage === false ? false : true;
         }
 
-        const data = filteredItems.slice(targetStart, targetEnd);
+        const data = filteredItems.slice(0, safeLimit);
         const estimatedLastPage = Math.max(
             safePage,
             totalResults
@@ -766,7 +766,7 @@ export class AllMangaScraper {
             pagination: {
                 current_page: safePage,
                 last_visible_page: estimatedLastPage,
-                has_next_page: filteredItems.length >= targetEnd || hasNextPage,
+                has_next_page: data.length >= safeLimit || hasNextPage,
             },
         };
     }

@@ -63,6 +63,7 @@ interface AnimeContextType {
     openViewAll: (type: 'latest' | 'trending' | 'seasonal' | 'continue_watching' | 'popular') => void;
     closeViewAll: () => void;
     changeViewAllPage: (page: number) => void;
+    loadMoreViewAll: () => void;
     prefetchEpisodes: (anime: Anime) => void;
     prefetchPage: (page: number) => void;
     fetchHomeData: () => Promise<void>;
@@ -170,6 +171,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
         current_page: 1,
         has_next_page: false
     });
+    const viewAllFetchInFlightRef = useRef(false);
 
     const normalizeScraperId = (value: unknown): string => {
         const raw = String(value ?? '').trim();
@@ -1597,9 +1599,11 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
     };
 
     // View All Logic
-    const fetchViewAll = async (type: 'latest' | 'trending' | 'seasonal' | 'continue_watching' | 'popular', page: number) => {
+    const fetchViewAll = async (type: 'latest' | 'trending' | 'seasonal' | 'continue_watching' | 'popular', page: number, append = false) => {
         if (type === 'continue_watching') return;
 
+        if (viewAllFetchInFlightRef.current) return;
+        viewAllFetchInFlightRef.current = true;
         setViewAllPagination((prev) => ({
             ...prev,
             current_page: page,
@@ -1615,7 +1619,11 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
 
             if (data?.data) {
                 const resolvedItems = Array.isArray(data.data) ? data.data : [];
-                setViewAllAnime(resolvedItems);
+                setViewAllAnime((prev) => append ? [...prev, ...resolvedItems] : resolvedItems);
+                if (append && resolvedItems.length === 0) {
+                    setViewAllPagination((prev) => ({ ...prev, has_next_page: false }));
+                    return;
+                }
                 if (data.pagination) {
                     setViewAllPagination(data.pagination);
                 } else {
@@ -1628,13 +1636,23 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
             }
         } catch (error) {
             console.error(error);
+            if (append) {
+                setViewAllPagination((prev) => ({ ...prev, has_next_page: false }));
+            }
         } finally {
+            viewAllFetchInFlightRef.current = false;
             setViewAllLoading(false);
         }
     };
 
     const openViewAll = (type: any) => {
         setViewMode(type);
+        setViewAllAnime([]);
+        setViewAllPagination({
+            last_visible_page: 1,
+            current_page: 1,
+            has_next_page: false
+        });
         // If continue_watching, data is already local, no fetch needed
         if (type !== 'continue_watching') {
             fetchViewAll(type, 1);
@@ -1652,6 +1670,11 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
+    const loadMoreViewAll = () => {
+        if (viewMode !== 'latest' || viewAllLoading || !viewAllPagination.has_next_page) return;
+        fetchViewAll('latest', viewAllPagination.current_page + 1, true);
+    };
+
     return (
         <AnimeContext.Provider value={{
             topAnime, spotlightAnime, latestUpdates, trendingAnime, popularSeason, popularMonth, topTenToday, topTenWeek, topTenMonth, selectedAnime,
@@ -1661,7 +1684,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
             error, episodeSearchQuery, viewAllAnime, viewAllLoading, viewAllPagination,
             viewMode, setEpisodeSearchQuery, handleAnimeClick, startWatching,
             watchAnime, closeDetails, closeWatch, closeAllModals, changePage,
-            openViewAll, closeViewAll, changeViewAllPage, prefetchEpisodes, prefetchPage,
+            openViewAll, closeViewAll, changeViewAllPage, loadMoreViewAll, prefetchEpisodes, prefetchPage,
             continueWatchingList, saveProgress, removeFromHistory, fetchHomeData,
             watchedEpisodes, markEpisodeComplete
         }}>

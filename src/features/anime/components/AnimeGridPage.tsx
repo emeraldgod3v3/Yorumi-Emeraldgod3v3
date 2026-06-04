@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { ChevronRight, Home } from 'lucide-react';
 import AnimeCardSkeleton from './AnimeCardSkeleton';
 import Pagination from '../../../components/ui/Pagination';
@@ -21,6 +22,8 @@ interface AnimeGridPageProps {
     onAnimeClick: (anime: Anime) => void;
     onAnimeHover?: (anime: Anime) => void;
     variant?: 'portrait' | 'landscape';
+    infiniteScroll?: boolean;
+    onLoadMore?: () => void;
 }
 
 export default function AnimeGridPage({
@@ -32,9 +35,46 @@ export default function AnimeGridPage({
     onBack,
     onAnimeClick,
     onAnimeHover,
-    variant = 'portrait'
+    variant = 'portrait',
+    infiniteScroll = false,
+    onLoadMore,
 }: AnimeGridPageProps) {
     const { language } = useTitleLanguage();
+    const sentinelRef = useRef<HTMLDivElement | null>(null);
+    const isInitialLoading = isLoading && animeList.length === 0;
+    const isLoadingMore = infiniteScroll && isLoading && animeList.length > 0;
+    const hasMore = Boolean(pagination?.has_next_page || pagination?.current_page < pagination?.last_visible_page);
+
+    useEffect(() => {
+        if (!infiniteScroll || !onLoadMore) return;
+        const sentinel = sentinelRef.current;
+        if (!sentinel) return;
+
+        const observer = new IntersectionObserver(([entry]) => {
+            if (entry.isIntersecting && hasMore && !isLoading) {
+                onLoadMore();
+            }
+        }, { rootMargin: '900px 0px 900px 0px' });
+
+        observer.observe(sentinel);
+        return () => observer.disconnect();
+    }, [hasMore, infiniteScroll, isLoading, onLoadMore]);
+
+    const gridClass = variant === 'landscape'
+        ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6'
+        : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6';
+    const renderSkeletons = (count: number) => (
+        Array.from({ length: count }).map((_, i) => (
+            variant === 'landscape' ? (
+                <div key={`grid-skeleton-${i}`} className="min-w-0">
+                    <div className="aspect-video rounded-lg bg-white/10 animate-pulse mb-3" />
+                    <div className="h-4 w-4/5 rounded bg-white/10 animate-pulse" />
+                </div>
+            ) : (
+                <AnimeCardSkeleton key={`grid-skeleton-${i}`} />
+            )
+        ))
+    );
     const renderLandscapeCard = (item: Anime) => {
         const displayTitle = getDisplayTitle(item as unknown as Record<string, unknown>, language);
         const landscapeImage = getDisplayImageUrl(
@@ -94,27 +134,14 @@ export default function AnimeGridPage({
                     {title}
                 </h2>
             </div>
-            {isLoading ? (
-                <div className={variant === 'landscape'
-                    ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6'
-                    : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6'}>
-                    {Array.from({ length: 12 }).map((_, i) => (
-                        variant === 'landscape' ? (
-                            <div key={i} className="min-w-0">
-                                <div className="aspect-video rounded-lg bg-white/10 animate-pulse mb-3" />
-                                <div className="h-4 w-4/5 rounded bg-white/10 animate-pulse" />
-                            </div>
-                        ) : (
-                            <AnimeCardSkeleton key={i} />
-                        )
-                    ))}
+            {isInitialLoading ? (
+                <div className={gridClass}>
+                    {renderSkeletons(12)}
                 </div>
             ) : (
                 <>
                     {animeList.length > 0 ? (
-                        <div className={variant === 'landscape'
-                            ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6'
-                            : 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6'}>
+                        <div className={gridClass}>
                             {animeList.map((item) => variant === 'landscape'
                                 ? renderLandscapeCard(item)
                                 : (
@@ -126,13 +153,28 @@ export default function AnimeGridPage({
                                     />
                                 )
                             )}
+                            {isLoadingMore && renderSkeletons(12)}
                         </div>
                     ) : (
                         <div className="rounded-2xl border border-white/10 bg-white/5 px-6 py-10 text-center text-gray-400">
                             No titles available right now.
                         </div>
                     )}
-                    {pagination && (
+                    {infiniteScroll && (
+                        <div ref={sentinelRef} className="flex min-h-28 items-center justify-center py-10">
+                            {isLoadingMore ? (
+                                <div className="flex items-center gap-3 text-sm font-semibold text-white/55">
+                                    <span className="h-2.5 w-2.5 rounded-full bg-yorumi-accent animate-pulse" />
+                                    Loading more
+                                </div>
+                            ) : hasMore ? (
+                                <div className="h-10 w-full" />
+                            ) : (
+                                <div className="text-sm font-semibold text-white/35">End of latest updates</div>
+                            )}
+                        </div>
+                    )}
+                    {!infiniteScroll && pagination && (
                         <Pagination
                             currentPage={pagination.current_page}
                             lastPage={pagination.last_visible_page}

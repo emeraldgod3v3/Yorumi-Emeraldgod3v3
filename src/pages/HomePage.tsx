@@ -268,6 +268,8 @@ export default function HomePage() {
                 onBack={anime.closeViewAll}
                 onAnimeClick={(item) => handleAnimeClick(item, 'Latest Updates')}
                 onAnimeHover={handleAnimeHover}
+                infiniteScroll
+                onLoadMore={anime.loadMoreViewAll}
             />
         );
     }
