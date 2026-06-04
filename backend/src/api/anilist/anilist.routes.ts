@@ -9,7 +9,7 @@ import { tmdbService } from '../scraper/tmdb.service';
 import { getAnimetsuSpotlight } from '../../scraper/animetsu';
 
 const router = Router();
-const HOME_FAST_CACHE_KEY = 'anilist:home:fast:v18';
+const HOME_FAST_CACHE_KEY = 'anilist:home:fast:v19';
 const HOME_FAST_TTL_SECONDS = 120;
 let homeFastMemoryCache: { data: any; timestamp: number } | null = null;
 let homeFastRefreshPromise: Promise<any> | null = null;
@@ -383,9 +383,8 @@ const buildHomeFastPayload = async () => {
             return fallback;
         }
     };
-    const [animetsuSpotlightRaw, anilistSpotlightRaw, latestEpisodesRaw, trending, seasonal, monthly, topAnime] = await Promise.all([
+    const [spotlightRaw, latestEpisodesRaw, trending, seasonal, monthly, topAnime] = await Promise.all([
         withTimeout(getAnimetsuSpotlight(8), 5000, [] as any[]),
-        withTimeout(anilistService.getNativeSpotlightAnime(8), 6000, [] as any[]),
         withTimeout(
             scraperService.getAllMangaLatestUpdates(1, 10).then((result) =>
                 Array.isArray(result?.data) ? result.data : []
@@ -398,11 +397,7 @@ const buildHomeFastPayload = async () => {
         withTimeout(anilistService.getPopularThisMonth(1, 10), 4000, { media: [] }),
         withTimeout(anilistService.getTopAnime(1, 18), 4000, { media: [], pageInfo: { lastPage: 1, currentPage: 1, hasNextPage: false } }),
     ]);
-    // Prefer Animetsu spotlight; fall back to AniList if Animetsu returned nothing.
-    const spotlightRaw = (Array.isArray(animetsuSpotlightRaw) && animetsuSpotlightRaw.length > 0)
-        ? animetsuSpotlightRaw
-        : (Array.isArray(anilistSpotlightRaw) ? anilistSpotlightRaw : []);
-    console.log(`[Spotlight] Source: ${animetsuSpotlightRaw.length > 0 ? 'Animetsu' : 'AniList'} (${spotlightRaw.length} items)`);
+    console.log(`[Spotlight] Source: Animetsu (${Array.isArray(spotlightRaw) ? spotlightRaw.length : 0} items)`);
     const latestRawItems = Array.isArray(latestEpisodesRaw) ? latestEpisodesRaw : [];
     const latestEpisodes = await Promise.race([
         enrichAnimeKaiItems(latestRawItems),
@@ -522,13 +517,10 @@ router.get('/format/:format', async (req, res) => {
     }
 });
 
-// Get native spotlight anime (top 8) — Animetsu primary, AniList fallback
+// Get native spotlight anime (top 8) from Animetsu.
 router.get('/spotlight', async (_req, res) => {
     try {
-        let media = await getAnimetsuSpotlight(8);
-        if (!media || media.length === 0) {
-            media = await anilistService.getNativeSpotlightAnime(8);
-        }
+        const media = await getAnimetsuSpotlight(8);
         const spotlight = wrapAniListMediaItems(media);
         res.set('Cache-Control', 'public, max-age=120, s-maxage=300, stale-while-revalidate=600');
         res.json({ spotlight });
@@ -540,10 +532,7 @@ router.get('/spotlight', async (_req, res) => {
 
 router.get('/native-spotlight', async (_req, res) => {
     try {
-        let media = await getAnimetsuSpotlight(8);
-        if (!media || media.length === 0) {
-            media = await anilistService.getNativeSpotlightAnime(8);
-        }
+        const media = await getAnimetsuSpotlight(8);
         const spotlight = wrapAniListMediaItems(media);
         res.set('Cache-Control', 'public, max-age=120, s-maxage=300, stale-while-revalidate=600');
         res.json({ spotlight });

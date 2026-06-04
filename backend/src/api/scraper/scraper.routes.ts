@@ -441,10 +441,7 @@ router.get('/search', async (req, res) => {
 router.get('/animekai/spotlight', async (_req, res) => {
     res.set('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=300');
     try {
-        let media = await getAnimetsuSpotlight(8);
-        if (!media || media.length === 0) {
-            media = await anilistService.getNativeSpotlightAnime(8);
-        }
+        const media = await getAnimetsuSpotlight(8);
         const spotlight = await Promise.race([
             applyTmdbSpotlightBanners(wrapAniListSpotlightItems(media)),
             new Promise<any[]>((resolve) => setTimeout(() => resolve(clearSpotlightBanners(wrapAniListSpotlightItems(media))), 3500)),
