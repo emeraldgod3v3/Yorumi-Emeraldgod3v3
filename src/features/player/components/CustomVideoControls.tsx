@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Settings, Cast, PictureInPicture2, Maximize, Minimize, Mic, Gauge, Video, Monitor, ChevronLeft, CheckCircle2, Circle } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Settings, Cast, Maximize, Minimize, Mic, Gauge, Video, Monitor, ChevronLeft, CheckCircle2, Circle, X, RotateCcw, RotateCw } from 'lucide-react';
 import type { StreamServerKey } from '../../../hooks/useStreams';
 import type { StreamLink } from '../../../types/stream';
 import { getMappedQuality } from '../../../utils/streamUtils';
@@ -20,13 +20,28 @@ interface CustomVideoControlsProps {
     selectedServer: StreamServerKey;
     onServerChange: (server: StreamServerKey) => void;
     streamKey?: string;
+    mode?: 'full' | 'mini';
+    onMiniClose?: () => void;
+    onMiniExpand?: () => void;
+    isWide?: boolean;
+    onToggleWide?: () => void;
 }
 
 const PLAYBACK_SPEEDS = [0.25, 1, 1.25, 1.5, 2];
 const QUALITY_OPTIONS = ['1080P', '720P', '360P'];
-const PIP_RETURN_URL_KEY = 'yorumi:pip:return-url';
+const SEEK_SECONDS = 5;
 const GLASS_BUTTON_CLASS = 'watch-control-glass rounded-full flex items-center justify-center text-white transition-colors shadow-[0_8px_28px_rgba(0,0,0,0.28)]';
 const GLASS_PANEL_CLASS = 'watch-control-glass rounded-full text-white shadow-[0_8px_28px_rgba(0,0,0,0.28)]';
+
+function SeekIcon({ direction }: { direction: 'back' | 'forward' }) {
+    const Icon = direction === 'back' ? RotateCcw : RotateCw;
+    return (
+        <span className="relative flex h-5 w-5 items-center justify-center">
+            <Icon className="h-5 w-5 stroke-[2.5]" />
+            <span className="absolute text-[8px] font-black leading-none tracking-normal">5</span>
+        </span>
+    );
+}
 
 export default function CustomVideoControls({
     videoRef,
@@ -44,6 +59,11 @@ export default function CustomVideoControls({
     selectedServer,
     onServerChange,
     streamKey,
+    mode = 'full',
+    onMiniClose,
+    onMiniExpand,
+    isWide = false,
+    onToggleWide,
 }: CustomVideoControlsProps) {
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentTime, setCurrentTime] = useState(0);
@@ -58,7 +78,6 @@ export default function CustomVideoControls({
     const [centerAction, setCenterAction] = useState<{ type: 'play' | 'pause'; id: number } | null>(null);
 
     const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const pipReturnUrlRef = useRef('');
     const currentStream = streams[selectedStreamIndex];
     const currentQuality = currentStream ? getMappedQuality(currentStream.quality) : '1080P';
     const hasDub = availableAudios.includes('dub');
@@ -138,41 +157,12 @@ export default function CustomVideoControls({
         video.addEventListener('play', updatePlayState);
         video.addEventListener('pause', updatePlayState);
         video.addEventListener('volumechange', updateVolume);
-        const handleEnterPiP = () => {
-            const returnUrl = window.location.href;
-            pipReturnUrlRef.current = returnUrl;
-            sessionStorage.setItem(PIP_RETURN_URL_KEY, returnUrl);
-        };
-        const handleLeavePiP = () => {
-            const returnUrl = pipReturnUrlRef.current || sessionStorage.getItem(PIP_RETURN_URL_KEY) || '';
-            sessionStorage.removeItem(PIP_RETURN_URL_KEY);
-            if (!returnUrl) return;
-
-            const playerShell = video.closest('.watch-player-shell') as HTMLElement | null;
-            const target = new URL(returnUrl, window.location.origin);
-            const currentKey = `${window.location.pathname}${window.location.search}`;
-            const targetKey = `${target.pathname}${target.search}`;
-
-            window.focus();
-            if (target.origin === window.location.origin && currentKey !== targetKey) {
-                window.location.assign(returnUrl);
-                return;
-            }
-
-            playerShell?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            playerShell?.focus({ preventScroll: true });
-        };
-        video.addEventListener('enterpictureinpicture', handleEnterPiP);
-        video.addEventListener('leavepictureinpicture', handleLeavePiP);
-
         return () => {
             video.removeEventListener('timeupdate', updateTime);
             video.removeEventListener('loadedmetadata', updateDuration);
             video.removeEventListener('play', updatePlayState);
             video.removeEventListener('pause', updatePlayState);
             video.removeEventListener('volumechange', updateVolume);
-            video.removeEventListener('enterpictureinpicture', handleEnterPiP);
-            video.removeEventListener('leavepictureinpicture', handleLeavePiP);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [videoRef, playbackSpeed, streamKey]);
@@ -225,25 +215,22 @@ export default function CustomVideoControls({
         }
     };
 
-    const togglePiP = async () => {
-        if (videoRef.current) {
-            if (document.pictureInPictureElement) {
-                await document.exitPictureInPicture();
-            } else {
-                const returnUrl = window.location.href;
-                pipReturnUrlRef.current = returnUrl;
-                sessionStorage.setItem(PIP_RETURN_URL_KEY, returnUrl);
-                await videoRef.current.requestPictureInPicture();
-            }
-        }
-    };
-
     const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
         const time = Number(e.target.value);
         if (videoRef.current) {
             videoRef.current.currentTime = time;
             setCurrentTime(time);
         }
+    };
+
+    const seekBy = (seconds: number) => {
+        const video = videoRef.current;
+        if (!video) return;
+        const durationSeconds = Number.isFinite(video.duration) ? video.duration : 0;
+        const nextTime = Math.max(0, Math.min(durationSeconds || Number.MAX_SAFE_INTEGER, video.currentTime + seconds));
+        video.currentTime = nextTime;
+        setCurrentTime(nextTime);
+        handleMouseMove();
     };
 
     const progressPercentage = duration ? (currentTime / duration) * 100 : 0;
@@ -280,7 +267,7 @@ export default function CustomVideoControls({
                     toggleVideoPlayback();
                 } else if (videoRef.current) {
                     const direction = event.code === 'ArrowRight' ? 1 : -1;
-                    const nextTime = Math.max(0, Math.min(videoRef.current.duration || 0, videoRef.current.currentTime + (direction * 5)));
+                    const nextTime = Math.max(0, Math.min(videoRef.current.duration || 0, videoRef.current.currentTime + (direction * SEEK_SECONDS)));
                     videoRef.current.currentTime = nextTime;
                     setCurrentTime(nextTime);
                 }
@@ -310,6 +297,91 @@ export default function CustomVideoControls({
             return () => clearTimeout(timer);
         }
     }, [centerAction]);
+
+    if (mode === 'mini') {
+        return (
+            <>
+                <style>{`
+                    @keyframes animetsu-center-pop {
+                        0% { opacity: 0; transform: translate(-50%, -50%) scale(0.62); }
+                        14% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+                        52% { opacity: 0.82; transform: translate(-50%, -50%) scale(1.18); }
+                        100% { opacity: 0; transform: translate(-50%, -50%) scale(1.72); }
+                    }
+                    .animate-animetsu-center-pop {
+                        animation: animetsu-center-pop 520ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+                    }
+                `}</style>
+
+                {centerAction && (
+                    <div
+                        key={centerAction.id}
+                        className="watch-center-pop absolute top-1/2 left-1/2 z-[60] flex h-12 w-12 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-black/55 shadow-2xl pointer-events-none animate-animetsu-center-pop"
+                    >
+                        {centerAction.type === 'play' ? (
+                            <Play className="h-6 w-6 fill-current text-white ml-0.5" />
+                        ) : (
+                            <Pause className="h-6 w-6 fill-current text-white" />
+                        )}
+                    </div>
+                )}
+
+                <div className={`absolute inset-0 z-[70] transition-opacity duration-200 ${showControls || !isPlaying ? 'opacity-100' : 'opacity-0'} group-hover:opacity-100`}>
+                    <div className="absolute inset-x-0 top-0 flex items-start justify-between p-2 bg-gradient-to-b from-black/55 to-transparent">
+                        <button
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                onMiniExpand?.();
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md transition-colors hover:bg-white/20"
+                            title="Back to player"
+                        >
+                            <Maximize className="h-4 w-4" />
+                        </button>
+                        <button
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                onMiniClose?.();
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-full bg-black/45 text-white shadow-lg backdrop-blur-md transition-colors hover:bg-white/20"
+                            title="Close"
+                        >
+                            <X className="h-4 w-4" />
+                        </button>
+                    </div>
+
+                    <div className="absolute inset-x-0 bottom-0 flex flex-col gap-2 p-2 bg-gradient-to-t from-black/70 via-black/40 to-transparent">
+                        <div className="relative h-1 w-full cursor-pointer rounded-full bg-white/25">
+                            <div
+                                className="absolute left-0 top-0 h-full rounded-full bg-white"
+                                style={{ width: `${progressPercentage}%` }}
+                            />
+                            <input
+                                type="range"
+                                min={0}
+                                max={duration || 100}
+                                value={currentTime}
+                                onChange={handleSeek}
+                                className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+                            />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={togglePlay}
+                                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black/50 text-white shadow-lg backdrop-blur-md transition-colors hover:bg-white/20"
+                            >
+                                {isPlaying ? <Pause className="h-4 w-4 fill-current" /> : <Play className="h-4 w-4 fill-current ml-0.5" />}
+                            </button>
+                            <div className="rounded-full bg-black/50 px-3 py-1.5 text-[11px] font-semibold text-white shadow-lg backdrop-blur-md">
+                                {formatTime(currentTime)} / {formatTime(duration)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </>
+        );
+    }
 
     return (
         <>
@@ -365,7 +437,7 @@ export default function CustomVideoControls({
                     </div>
 
                     {/* Controls */}
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-3">
                         {/* Left Controls */}
                         <div className="flex items-center gap-2">
                             <button 
@@ -416,118 +488,139 @@ export default function CustomVideoControls({
                         </div>
 
                         {/* Right Controls */}
-                        <div className={`${GLASS_PANEL_CLASS} flex items-center gap-1 px-3 h-10 relative`}>
-                            {/* Settings Popover */}
-                            {showSettings && (
-                                <div className="absolute bottom-full right-0 mb-4 w-72 bg-[#1A1A1A]/95 backdrop-blur-xl rounded-2xl p-2 shadow-2xl border border-white/10 z-50">
-                                    {settingsView !== 'main' && (
-                                        <button
-                                            onClick={() => setSettingsView('main')}
-                                            className="mb-2 flex w-full items-center gap-2 border-b border-white/10 px-2 pb-3 pt-1 text-left text-sm font-semibold text-white"
-                                        >
-                                            <ChevronLeft className="h-4 w-4" />
-                                            {settingsView === 'quality' ? 'Quality' : 'Playback speed'}
-                                        </button>
-                                    )}
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => seekBy(-SEEK_SECONDS)}
+                                className={`${GLASS_BUTTON_CLASS} h-10 w-12`}
+                                title="Back 5 seconds"
+                            >
+                                <SeekIcon direction="back" />
+                            </button>
+                            <button
+                                onClick={() => seekBy(SEEK_SECONDS)}
+                                className={`${GLASS_BUTTON_CLASS} h-10 w-12`}
+                                title="Forward 5 seconds"
+                            >
+                                <SeekIcon direction="forward" />
+                            </button>
 
-                                    {settingsView === 'main' && (
-                                        <div className="flex flex-col">
+                            <div className={`${GLASS_PANEL_CLASS} flex items-center gap-1 px-3 h-10 relative`}>
+                                {/* Settings Popover */}
+                                {showSettings && (
+                                    <div className="absolute bottom-full right-0 mb-4 w-72 bg-[#1A1A1A]/95 backdrop-blur-xl rounded-2xl p-2 shadow-2xl border border-white/10 z-50">
+                                        {settingsView !== 'main' && (
                                             <button
-                                                onClick={() => hasDub && onAudioChange(selectedAudio === 'dub' ? 'sub' : 'dub')}
-                                                disabled={!hasDub}
-                                                className="flex items-center justify-between w-full p-3 hover:bg-white/10 rounded-xl transition-colors disabled:opacity-40"
+                                                onClick={() => setSettingsView('main')}
+                                                className="mb-2 flex w-full items-center gap-2 border-b border-white/10 px-2 pb-3 pt-1 text-left text-sm font-semibold text-white"
                                             >
-                                                <div className="flex items-center gap-3 text-white">
-                                                    <Mic className="w-5 h-5" />
-                                                    <span className="text-sm font-medium">Dub</span>
-                                                </div>
-                                                <div className={`w-9 h-5 rounded-full relative shadow-inner transition-colors ${selectedAudio === 'dub' ? 'bg-white' : 'bg-white/20'}`}>
-                                                    <div className={`absolute top-1 w-3 h-3 rounded-full transition-all ${selectedAudio === 'dub' ? 'bg-black left-5' : 'bg-white left-1'}`}></div>
-                                                </div>
+                                                <ChevronLeft className="h-4 w-4" />
+                                                {settingsView === 'quality' ? 'Quality' : 'Playback speed'}
                                             </button>
-                                            <button
-                                                onClick={() => setSettingsView('speed')}
-                                                className="flex items-center justify-between w-full p-3 hover:bg-white/10 rounded-xl transition-colors"
-                                            >
-                                                <div className="flex items-center gap-3 text-white">
-                                                    <Gauge className="w-5 h-5" />
-                                                    <span className="text-sm font-medium">Playback speed</span>
-                                                </div>
-                                                <span className="text-xs text-white/70">{playbackSpeed}x</span>
-                                            </button>
-                                            <button
-                                                onClick={() => setSettingsView('quality')}
-                                                className="flex items-center justify-between w-full p-3 hover:bg-white/10 rounded-xl transition-colors"
-                                            >
-                                                <div className="flex items-center gap-3 text-white">
-                                                    <Video className="w-5 h-5" />
-                                                    <span className="text-sm font-medium">Quality</span>
-                                                </div>
-                                                <span className="text-xs text-white/70">{isAutoQuality ? `Auto(${currentQuality})` : currentQuality}</span>
-                                            </button>
-                                            <button
-                                                onClick={() => onServerChange('auto')}
-                                                className="flex items-center justify-between w-full p-3 hover:bg-white/10 rounded-xl transition-colors"
-                                            >
-                                                <div className="flex items-center gap-3 text-white">
-                                                    <Monitor className="w-5 h-5" />
-                                                    <span className="text-sm font-medium">Server</span>
-                                                </div>
-                                                <span className="text-xs text-white/70">{selectedServer === 'auto' ? 'Default' : selectedServer}</span>
-                                            </button>
-                                        </div>
-                                    )}
+                                        )}
 
-                                    {settingsView === 'speed' && (
-                                        <div className="flex flex-col gap-1">
-                                            {PLAYBACK_SPEEDS.map((speed) => (
+                                        {settingsView === 'main' && (
+                                            <div className="flex flex-col">
                                                 <button
-                                                    key={speed}
-                                                    onClick={() => setVideoPlaybackSpeed(speed)}
-                                                    className={`flex w-full items-center justify-between rounded-xl p-3 text-left transition-colors ${playbackSpeed === speed ? 'bg-white/10 text-white' : 'text-white/80 hover:bg-white/10'}`}
+                                                    onClick={() => hasDub && onAudioChange(selectedAudio === 'dub' ? 'sub' : 'dub')}
+                                                    disabled={!hasDub}
+                                                    className="flex items-center justify-between w-full p-3 hover:bg-white/10 rounded-xl transition-colors disabled:opacity-40"
                                                 >
-                                                    <span className="text-sm font-medium">{speed}x</span>
-                                                    {playbackSpeed === speed ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
+                                                    <div className="flex items-center gap-3 text-white">
+                                                        <Mic className="w-5 h-5" />
+                                                        <span className="text-sm font-medium">Dub</span>
+                                                    </div>
+                                                    <div className={`w-9 h-5 rounded-full relative shadow-inner transition-colors ${selectedAudio === 'dub' ? 'bg-white' : 'bg-white/20'}`}>
+                                                        <div className={`absolute top-1 w-3 h-3 rounded-full transition-all ${selectedAudio === 'dub' ? 'bg-black left-5' : 'bg-white left-1'}`}></div>
+                                                    </div>
                                                 </button>
-                                            ))}
-                                        </div>
-                                    )}
+                                                <button
+                                                    onClick={() => setSettingsView('speed')}
+                                                    className="flex items-center justify-between w-full p-3 hover:bg-white/10 rounded-xl transition-colors"
+                                                >
+                                                    <div className="flex items-center gap-3 text-white">
+                                                        <Gauge className="w-5 h-5" />
+                                                        <span className="text-sm font-medium">Playback speed</span>
+                                                    </div>
+                                                    <span className="text-xs text-white/70">{playbackSpeed}x</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => setSettingsView('quality')}
+                                                    className="flex items-center justify-between w-full p-3 hover:bg-white/10 rounded-xl transition-colors"
+                                                >
+                                                    <div className="flex items-center gap-3 text-white">
+                                                        <Video className="w-5 h-5" />
+                                                        <span className="text-sm font-medium">Quality</span>
+                                                    </div>
+                                                    <span className="text-xs text-white/70">{isAutoQuality ? `Auto(${currentQuality})` : currentQuality}</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => onServerChange('auto')}
+                                                    className="flex items-center justify-between w-full p-3 hover:bg-white/10 rounded-xl transition-colors"
+                                                >
+                                                    <div className="flex items-center gap-3 text-white">
+                                                        <Monitor className="w-5 h-5" />
+                                                        <span className="text-sm font-medium">Server</span>
+                                                    </div>
+                                                    <span className="text-xs text-white/70">{selectedServer === 'auto' ? 'Default' : selectedServer}</span>
+                                                </button>
+                                            </div>
+                                        )}
 
-                                    {settingsView === 'quality' && (
-                                        <div className="flex flex-col gap-1">
-                                            {QUALITY_OPTIONS.map((quality) => {
-                                                const streamIndex = streams.findIndex((stream) => getMappedQuality(stream.quality) === quality);
-                                                const isAvailable = streamIndex >= 0;
-                                                const isSelected = !isAutoQuality && currentQuality === quality;
-                                                return (
+                                        {settingsView === 'speed' && (
+                                            <div className="flex flex-col gap-1">
+                                                {PLAYBACK_SPEEDS.map((speed) => (
                                                     <button
-                                                        key={quality}
-                                                        onClick={() => handleQualitySelect(quality)}
-                                                        disabled={!isAvailable}
-                                                        className={`flex w-full items-center justify-between rounded-xl p-3 text-left transition-colors disabled:opacity-40 ${isSelected ? 'bg-white/10 text-white' : 'text-white/80 hover:bg-white/10'}`}
+                                                        key={speed}
+                                                        onClick={() => setVideoPlaybackSpeed(speed)}
+                                                        className={`flex w-full items-center justify-between rounded-xl p-3 text-left transition-colors ${playbackSpeed === speed ? 'bg-white/10 text-white' : 'text-white/80 hover:bg-white/10'}`}
                                                     >
-                                                        <span className="text-sm font-medium">{quality.replace('P', 'p')}</span>
-                                                        {isSelected ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
+                                                        <span className="text-sm font-medium">{speed}x</span>
+                                                        {playbackSpeed === speed ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
                                                     </button>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
+                                                ))}
+                                            </div>
+                                        )}
 
-                            <button onClick={() => { setShowSettings(!showSettings); setSettingsView('main'); }} className="text-white hover:text-white/80 transition-colors p-2 rounded-full hover:bg-white/10">
-                                <Settings className="w-5 h-5" />
-                            </button>
-                            <button className="text-white hover:text-white/80 transition-colors p-2 rounded-full hover:bg-white/10 hidden sm:block">
-                                <Cast className="w-5 h-5" />
-                            </button>
-                            <button onClick={togglePiP} className="text-white hover:text-white/80 transition-colors p-2 rounded-full hover:bg-white/10 hidden sm:block">
-                                <PictureInPicture2 className="w-5 h-5" />
-                            </button>
-                            <button onClick={toggleFullscreen} className="text-white hover:text-white/80 transition-colors p-2 rounded-full hover:bg-white/10">
-                                {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
-                            </button>
+                                        {settingsView === 'quality' && (
+                                            <div className="flex flex-col gap-1">
+                                                {QUALITY_OPTIONS.map((quality) => {
+                                                    const streamIndex = streams.findIndex((stream) => getMappedQuality(stream.quality) === quality);
+                                                    const isAvailable = streamIndex >= 0;
+                                                    const isSelected = !isAutoQuality && currentQuality === quality;
+                                                    return (
+                                                        <button
+                                                            key={quality}
+                                                            onClick={() => handleQualitySelect(quality)}
+                                                            disabled={!isAvailable}
+                                                            className={`flex w-full items-center justify-between rounded-xl p-3 text-left transition-colors disabled:opacity-40 ${isSelected ? 'bg-white/10 text-white' : 'text-white/80 hover:bg-white/10'}`}
+                                                        >
+                                                            <span className="text-sm font-medium">{quality.replace('P', 'p')}</span>
+                                                            {isSelected ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                <button onClick={() => { setShowSettings(!showSettings); setSettingsView('main'); }} className="text-white hover:text-white/80 transition-colors p-2 rounded-full hover:bg-white/10">
+                                    <Settings className="w-5 h-5" />
+                                </button>
+                                <button className="text-white hover:text-white/80 transition-colors p-2 rounded-full hover:bg-white/10 hidden sm:block">
+                                    <Cast className="w-5 h-5" />
+                                </button>
+                                <button
+                                    onClick={onToggleWide}
+                                    className={`hidden rounded-full p-2 text-white transition-colors sm:block ${isWide ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-white/10 hover:text-white/80'}`}
+                                    title={isWide ? 'Show episodes' : 'Wide player'}
+                                >
+                                    <Monitor className="w-5 h-5" />
+                                </button>
+                                <button onClick={toggleFullscreen} className="text-white hover:text-white/80 transition-colors p-2 rounded-full hover:bg-white/10">
+                                    {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
