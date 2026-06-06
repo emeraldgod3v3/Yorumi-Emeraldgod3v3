@@ -8,6 +8,7 @@ import YumiChat from './components/chat/YumiChat';
 import ScrollToTop from './components/ui/ScrollToTop';
 import { useTitleLanguage } from './context/TitleLanguageContext';
 import { useNavbarSearch } from './features/search/hooks/useNavbarSearch';
+import { PersistentPlayerProvider } from './features/player/context/PersistentPlayerContext';
 import { useAnime } from './hooks/useAnime';
 import { gentleTransition } from './utils/motion';
 
@@ -109,7 +110,9 @@ function App() {
                         isSearching={isSearching}
                     />
 
-                    <AppRoutes />
+                    <PersistentPlayerProvider>
+                        <AppRoutes />
+                    </PersistentPlayerProvider>
 
                     <ScrollToTop activeTab={activeTab as 'anime' | 'manga'} isVisible={showScrollToTop && !isYumiOpen} />
 

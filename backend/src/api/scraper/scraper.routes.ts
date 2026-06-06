@@ -6,7 +6,6 @@ import { anilistService } from '../anilist/anilist.service';
 import { redis } from '../mapping/mapper';
 import { tmdbService } from './tmdb.service';
 import { getBrowserInstance } from '../../utils/browser';
-import { getAnimetsuSpotlight } from '../../scraper/animetsu';
 
 const router = Router();
 const upstreamCookieJar = new Map<string, string>();
@@ -16,7 +15,7 @@ const reAnimeScraper = new ReAnimeScraper();
 let spotlightMemCache: { spotlight: any[] } | null = null;
 let latestUpdatesMemCache: { latestEpisodes: any[] } | null = null;
 const newReleasesMemCache = new Map<string, { data: any[]; pagination: any }>();
-const SPOTLIGHT_REDIS_KEY = 'reanime:spotlight:enriched:v2';
+const SPOTLIGHT_REDIS_KEY = 'anilist:native-spotlight:enriched:v1';
 const LATEST_HOME_LIMIT = 10;
 const LATEST_REDIS_KEY = 'allmanga:latest-updates:cards:v1';
 const NEW_RELEASES_REDIS_PREFIX = 'allmanga:new-releases:cards:v1';
@@ -121,16 +120,12 @@ const wrapAniListSpotlightItems = (items: any[]) =>
     }));
 
 const refreshSpotlightCache = async (): Promise<{ spotlight: any[] }> => {
-    const rawItems = await reAnimeScraper.getSpotlightAnime();
-    if (rawItems.length === 0) {
-        throw new Error('ReAnime spotlight returned no items');
+    const media = await anilistService.getNativeSpotlightAnime(8);
+    if (media.length === 0) {
+        throw new Error('AniList native spotlight returned no items');
     }
 
-    const rawSpotlight = buildAnimeKaiFallbackItems(rawItems);
-    const enrichedSpotlight = await Promise.race([
-        enrichAnimeKaiItems(rawItems),
-        new Promise<any[]>((resolve) => setTimeout(() => resolve(rawSpotlight), 2500)),
-    ]);
+    const enrichedSpotlight = wrapAniListSpotlightItems(media);
     const spotlight = await Promise.race([
         applyTmdbSpotlightBanners(enrichedSpotlight),
         new Promise<any[]>((resolve) => setTimeout(() => resolve(clearSpotlightBanners(enrichedSpotlight)), 3500)),
@@ -441,16 +436,7 @@ router.get('/search', async (req, res) => {
 router.get('/animekai/spotlight', async (_req, res) => {
     res.set('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=300');
     try {
-        const media = await getAnimetsuSpotlight(8);
-        const spotlight = await Promise.race([
-            applyTmdbSpotlightBanners(wrapAniListSpotlightItems(media)),
-            new Promise<any[]>((resolve) => setTimeout(() => resolve(clearSpotlightBanners(wrapAniListSpotlightItems(media))), 3500)),
-        ]);
-        const payload = { spotlight };
-        if (spotlight.length > 0) {
-            spotlightMemCache = payload;
-            redis.set(SPOTLIGHT_REDIS_KEY, payload, { ex: CACHE_TTL_SECONDS }).catch(() => undefined);
-        }
+        const payload = await refreshSpotlightCache();
         res.json(payload);
     } catch (error: any) {
         console.error('Native spotlight failed, serving stale:', error?.message || error);

@@ -6,10 +6,9 @@ import { redis } from '../mapping/mapper';
 import { mappingService } from '../mapping/mapping.service';
 import { scraperService } from '../scraper/scraper.service';
 import { tmdbService } from '../scraper/tmdb.service';
-import { getAnimetsuSpotlight } from '../../scraper/animetsu';
 
 const router = Router();
-const HOME_FAST_CACHE_KEY = 'anilist:home:fast:v19';
+const HOME_FAST_CACHE_KEY = 'anilist:home:fast:v20';
 const HOME_FAST_TTL_SECONDS = 120;
 let homeFastMemoryCache: { data: any; timestamp: number } | null = null;
 let homeFastRefreshPromise: Promise<any> | null = null;
@@ -384,7 +383,7 @@ const buildHomeFastPayload = async () => {
         }
     };
     const [spotlightRaw, latestEpisodesRaw, trending, seasonal, monthly, topAnime] = await Promise.all([
-        withTimeout(getAnimetsuSpotlight(8), 5000, [] as any[]),
+        withTimeout(anilistService.getNativeSpotlightAnime(8), 5000, [] as any[]),
         withTimeout(
             scraperService.getAllMangaLatestUpdates(1, 10).then((result) =>
                 Array.isArray(result?.data) ? result.data : []
@@ -397,7 +396,7 @@ const buildHomeFastPayload = async () => {
         withTimeout(anilistService.getPopularThisMonth(1, 10), 4000, { media: [] }),
         withTimeout(anilistService.getTopAnime(1, 18), 4000, { media: [], pageInfo: { lastPage: 1, currentPage: 1, hasNextPage: false } }),
     ]);
-    console.log(`[Spotlight] Source: Animetsu (${Array.isArray(spotlightRaw) ? spotlightRaw.length : 0} items)`);
+    console.log(`[Spotlight] Source: AniList native (${Array.isArray(spotlightRaw) ? spotlightRaw.length : 0} items)`);
     const latestRawItems = Array.isArray(latestEpisodesRaw) ? latestEpisodesRaw : [];
     const latestEpisodes = await Promise.race([
         enrichAnimeKaiItems(latestRawItems),
@@ -517,10 +516,10 @@ router.get('/format/:format', async (req, res) => {
     }
 });
 
-// Get native spotlight anime (top 8) from Animetsu.
+// Get native spotlight anime (top 8) from AniList trend/season/popularity pools.
 router.get('/spotlight', async (_req, res) => {
     try {
-        const media = await getAnimetsuSpotlight(8);
+        const media = await anilistService.getNativeSpotlightAnime(8);
         const spotlight = wrapAniListMediaItems(media);
         res.set('Cache-Control', 'public, max-age=120, s-maxage=300, stale-while-revalidate=600');
         res.json({ spotlight });
@@ -532,7 +531,7 @@ router.get('/spotlight', async (_req, res) => {
 
 router.get('/native-spotlight', async (_req, res) => {
     try {
-        const media = await getAnimetsuSpotlight(8);
+        const media = await anilistService.getNativeSpotlightAnime(8);
         const spotlight = wrapAniListMediaItems(media);
         res.set('Cache-Control', 'public, max-age=120, s-maxage=300, stale-while-revalidate=600');
         res.json({ spotlight });

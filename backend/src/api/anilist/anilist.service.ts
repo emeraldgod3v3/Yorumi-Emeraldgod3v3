@@ -475,8 +475,25 @@ export const anilistService = {
         const genreCounts = new Map<string, number>();
         const ranked = Array.from(candidates.values())
             .sort((a, b) => b.score - a.score);
+        const rotationWindow = Math.max(limit, Math.min(ranked.length, limit * 3));
+        const rotationSeed = Math.floor(Date.now() / (6 * 60 * 60 * 1000));
+        const rotationOffset = rotationWindow > limit ? rotationSeed % rotationWindow : 0;
+        const pinnedCount = Math.min(2, limit, ranked.length);
+        const pinned = ranked.slice(0, pinnedCount);
+        const rotatingPool = ranked.slice(pinnedCount, rotationWindow);
+        const rotated = rotatingPool.length > 0
+            ? [
+                ...rotatingPool.slice(rotationOffset % rotatingPool.length),
+                ...rotatingPool.slice(0, rotationOffset % rotatingPool.length),
+            ]
+            : [];
+        const ordered = [
+            ...pinned,
+            ...rotated,
+            ...ranked.slice(rotationWindow),
+        ];
 
-        for (const candidate of ranked) {
+        for (const candidate of ordered) {
             const overusedGenres = candidate.genres.filter((genre) => (genreCounts.get(genre) || 0) >= 3);
             if (selected.length >= 4 && overusedGenres.length >= Math.min(2, candidate.genres.length)) continue;
             selected.push(candidate.media);

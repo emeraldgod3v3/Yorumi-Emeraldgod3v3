@@ -1,18 +1,20 @@
-import { useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useEffect, useMemo } from 'react';
+import { useLocation, useParams } from 'react-router-dom';
 import { Home, ChevronRight } from 'lucide-react';
 import { usePlayer } from '../features/player/hooks/usePlayer';
 
 // Feature Components
 import EpisodeList from '../features/player/components/EpisodeList';
-import VideoPlayer from '../features/player/components/VideoPlayer';
 import { useTitleLanguage } from '../context/TitleLanguageContext';
 import { getDisplayTitle } from '../utils/titleLanguage';
 import { getAnimeDetailsRouteId } from '../utils/animeNavigation';
+import { usePersistentPlayer } from '../features/player/context/PersistentPlayerContext';
 
 export default function WatchPage() {
     const { id, title } = useParams<{ title: string; id: string }>();
+    const location = useLocation();
     const { language } = useTitleLanguage();
+    const { registerPlayer, setInlinePlayerElement } = usePersistentPlayer();
     const extractDirectScraperSession = (value: unknown): string => {
         const raw = String(value || '').trim();
         const normalized = raw
@@ -70,6 +72,7 @@ export default function WatchPage() {
         availableAudios,
         selectedStreamIndex,
         reloadPlayer,
+        toggleExpand,
         handlePrevEp,
         handleNextEp,
         handleEpisodeClick,
@@ -95,6 +98,65 @@ export default function WatchPage() {
         )
     );
     const isPageLoading = !anime || !animeMatch;
+    const playerProps = useMemo(() => ({
+        streamUrl: currentStream?.url,
+        episodeSession: currentEpisode?.session ?? epNum,
+        isHls: currentStream?.isHls,
+        subtitles: currentStream?.subtitles,
+        isLoading: streamLoading,
+        streamExhausted,
+        hasPlayableSource: !currentEpisode || Boolean(currentStream?.url) || streamLoading,
+        onLoad: () => setIsPlayerReady(true),
+        onError: handleStreamError,
+        onProgress: handlePlaybackProgress,
+        startAtSeconds: resumeAtSeconds,
+        onNextEpisode: canNextEpisode ? handleNextEp : undefined,
+        onPrevEpisode: canPrevEpisode ? handlePrevEp : undefined,
+        hasNextEpisode: canNextEpisode,
+        selectedAudio,
+        availableAudios,
+        onAudioChange: setSelectedAudio,
+        streams,
+        selectedStreamIndex,
+        isAutoQuality,
+        onQualityChange: handleQualityChange,
+        onSetAutoQuality: setAutoQuality,
+        selectedServer,
+        onServerChange: setSelectedServer,
+        isWide: isExpanded,
+        onToggleWide: toggleExpand,
+    }), [
+        availableAudios,
+        canNextEpisode,
+        canPrevEpisode,
+        currentEpisode,
+        currentStream,
+        epNum,
+        handleNextEp,
+        handlePlaybackProgress,
+        handlePrevEp,
+        handleQualityChange,
+        handleStreamError,
+        isAutoQuality,
+        isExpanded,
+        resumeAtSeconds,
+        selectedAudio,
+        selectedServer,
+        selectedStreamIndex,
+        setAutoQuality,
+        setIsPlayerReady,
+        setSelectedAudio,
+        setSelectedServer,
+        streamExhausted,
+        streamLoading,
+        streams,
+        toggleExpand,
+    ]);
+
+    useEffect(() => {
+        if (error || isPageLoading) return;
+        registerPlayer(playerProps, `${location.pathname}${location.search}`);
+    }, [error, isPageLoading, location.pathname, location.search, playerProps, registerPlayer]);
 
     if (error) {
         return (
@@ -211,31 +273,9 @@ export default function WatchPage() {
                             >
                                 {/* Video Player Card - Maximized & End-to-End Alignment */}
                                 <div className="shrink-0 w-full max-w-full aspect-video flex items-center justify-center overflow-hidden relative rounded-none md:rounded-2xl">
-                                    <VideoPlayer
-                                        streamUrl={currentStream?.url}
-                                        episodeSession={currentEpisode?.session ?? epNum}
-                                        isHls={currentStream?.isHls}
-                                        subtitles={currentStream?.subtitles}
-                                        isLoading={streamLoading}
-                                        streamExhausted={streamExhausted}
-                                        hasPlayableSource={!currentEpisode || Boolean(currentStream?.url) || streamLoading}
-                                        onLoad={() => setIsPlayerReady(true)}
-                                        onError={handleStreamError}
-                                        onProgress={handlePlaybackProgress}
-                                        startAtSeconds={resumeAtSeconds}
-                                        onNextEpisode={canNextEpisode ? handleNextEp : undefined}
-                                        onPrevEpisode={canPrevEpisode ? handlePrevEp : undefined}
-                                        hasNextEpisode={canNextEpisode}
-                                        selectedAudio={selectedAudio}
-                                        availableAudios={availableAudios}
-                                        onAudioChange={setSelectedAudio}
-                                        streams={streams}
-                                        selectedStreamIndex={selectedStreamIndex}
-                                        isAutoQuality={isAutoQuality}
-                                        onQualityChange={handleQualityChange}
-                                        onSetAutoQuality={setAutoQuality}
-                                        selectedServer={selectedServer}
-                                        onServerChange={setSelectedServer}
+                                    <div
+                                        ref={setInlinePlayerElement}
+                                        className="h-full w-full bg-black rounded-none md:rounded-2xl"
                                     />
                                 </div>
                             </div>
