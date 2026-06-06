@@ -35,6 +35,8 @@ export interface StreamLink {
     url: string;
     directUrl?: string;
     referer?: string;
+    cookie?: string;
+    audioLanguage?: string;
     isHls: boolean;
     subtitles?: { url: string; lang: string; default?: boolean }[];
 }

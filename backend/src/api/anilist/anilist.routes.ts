@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { anilistService } from './anilist.service';
 import { AllMangaScraper } from '../../scraper/allmanga';
-import { ReAnimeScraper } from '../../scraper/reanime';
 import { redis } from '../mapping/mapper';
 import { mappingService } from '../mapping/mapping.service';
 import { scraperService } from '../scraper/scraper.service';
@@ -755,7 +754,7 @@ router.get('/anime/:id/fast', async (req, res) => {
             const genericScraperSession = !allMangaSession;
             const scraperDetails = allMangaSession
                     ? await scraperService.getAllMangaAnimeInfo(resolvedSession)
-                : await new ReAnimeScraper().getAnimeInfo(resolvedSession);
+                : null;
 
             if (genericScraperSession) {
                 animeDetails = scraperDetails ? {
@@ -918,7 +917,7 @@ router.get('/anime/:id', async (req, res) => {
             const genericScraperSession = !allMangaSession;
             const scraperDetails = allMangaSession
                 ? await scraperService.getAllMangaAnimeInfo(scraperId)
-                : await new ReAnimeScraper().getAnimeInfo(scraperId);
+                : null;
             if (!scraperDetails) {
                 return res.status(404).json({ error: 'Anime not found on scraper' });
             }

@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { scraperService } from './scraper.service';
 import axios from 'axios';
-import { ReAnimeScraper } from '../../scraper/reanime';
 import { anilistService } from '../anilist/anilist.service';
 import { redis } from '../mapping/mapper';
 import { tmdbService } from './tmdb.service';
@@ -9,7 +8,6 @@ import { getBrowserInstance } from '../../utils/browser';
 
 const router = Router();
 const upstreamCookieJar = new Map<string, string>();
-const reAnimeScraper = new ReAnimeScraper();
 
 // ── Resilient in-memory caches (stale-serve on failure) ────────────────────
 let spotlightMemCache: { spotlight: any[] } | null = null;
@@ -239,6 +237,8 @@ const buildScraperProxyUrl = (req: any, targetUrl: string, referer = '', proxyMe
     const safeReferer = String(referer || '').trim();
     return `${getPublicBase(req)}/api/scraper/proxy?url=${encodeURIComponent(safeUrl)}${safeReferer ? `&referer=${encodeURIComponent(safeReferer)}` : ''}${proxyMedia ? '&proxyMedia=1' : ''}`;
 };
+
+
 
 const buildEmbedAssetProxyUrl = (req: any, targetUrl: string) => {
     const safeUrl = String(targetUrl || '').trim();
@@ -625,7 +625,7 @@ router.get('/animekai/top-trending', async (req, res) => {
         const range = ['now', 'day', 'week', 'month'].includes(requestedRange)
             ? requestedRange as 'now' | 'day' | 'week' | 'month'
             : 'now';
-        const rawTop10 = await reAnimeScraper.getTopTrending(range);
+        const rawTop10: any[] = [];
         const top10 = await enrichAnimeKaiItemsWithFallback(rawTop10, 5000);
         res.set('Cache-Control', 'public, max-age=60, s-maxage=120, stale-while-revalidate=300');
         res.json({ top10 });
@@ -691,6 +691,8 @@ router.get('/streams', async (req, res) => {
                     }
                     return next;
                 }
+
+
 
                 if (next.url.includes('/api/scraper/proxy?')) {
                     if (next.url.startsWith('/api/')) {
@@ -923,6 +925,7 @@ router.get('/proxy', async (req, res) => {
     const requestedReferer = (req.query.referer as string) || '';
     const requestedCookie = sanitizeCookie((req.query.cookie as string) || '');
     const proxyMediaSegments = String(req.query.proxyMedia || '').trim() === '1';
+    const requestedAudio = String(req.query.audio || '').trim().toLowerCase();
 
     if (!targetUrl) {
         return res.status(400).send('Missing url parameter');
@@ -1029,8 +1032,16 @@ router.get('/proxy', async (req, res) => {
         // Raw media segment lines (.ts, .aac, .mp4, etc.) are served directly from the upstream
         // CDN so that Vercel is not burdened with streaming gigabytes of video through its
         // serverless functions — which is the primary driver of Fluid Active CPU exhaustion.
+        const getUrlPath = (value: string) => {
+            try {
+                return new URL(value, basePath).pathname.toLowerCase();
+            } catch {
+                return value.toLowerCase().split('?')[0];
+            }
+        };
+
         const isMediaSegment = (line: string) => {
-            const lower = line.toLowerCase().split('?')[0];
+            const lower = getUrlPath(line);
             return (
                 lower.endsWith('.ts') ||
                 lower.endsWith('.aac') ||
@@ -1039,11 +1050,36 @@ router.get('/proxy', async (req, res) => {
                 lower.endsWith('.cmaf') ||
                 lower.endsWith('.fmp4') ||
                 lower.endsWith('.jpg') ||
-                lower.endsWith('.jpeg')
+                lower.endsWith('.jpeg') ||
+                lower.startsWith('/p/') ||
+                lower.startsWith('/hls/')
             );
         };
 
-        const rewritten = body
+        const isLikelySubPlaylist = (line: string) => {
+            const lowerPath = getUrlPath(line);
+            return lowerPath.endsWith('.m3u8') || !/\.[a-z0-9]{2,5}$/i.test(lowerPath);
+        };
+
+        const filterHlsAudio = (playlist: string) => {
+            if (!requestedAudio) return playlist;
+            if (!/^[a-z]{2,3}$/i.test(requestedAudio)) return playlist;
+
+            const audioLinePattern = /#EXT-X-MEDIA:TYPE=AUDIO[^\n]*/gi;
+            let matchedAudio = false;
+            const nextPlaylist = playlist.replace(audioLinePattern, (line) => {
+                const language = line.match(/\bLANGUAGE=["']?([^"',]+)["']?/i)?.[1]?.toLowerCase();
+                if (language !== requestedAudio) return '';
+                matchedAudio = true;
+                return line
+                    .replace(/\bDEFAULT=(YES|NO)/i, 'DEFAULT=YES')
+                    .replace(/\bAUTOSELECT=(YES|NO)/i, 'AUTOSELECT=YES');
+            });
+
+            return matchedAudio ? nextPlaylist.replace(/\n{3,}/g, '\n\n') : playlist;
+        };
+
+        const rewritten = filterHlsAudio(body)
             .split('\n')
             .map((line) => {
                 const trimmed = line.trim();
@@ -1071,9 +1107,8 @@ router.get('/proxy', async (req, res) => {
                     return `${getPublicBase(req)}/api/scraper/proxy?url=${encodeURIComponent(absolute)}${proxySuffix}`;
                 }
 
-                // Sub-playlist (.m3u8) lines must pass through the proxy for CORS.
-                // Media segments are direct unless proxyMedia=1 is requested by CLI/mpv.
-                if (!isMediaSegment(trimmed) && (trimmed.toLowerCase().includes('.m3u8') || !trimmed.toLowerCase().split('?')[0].includes('.'))) {
+                // Sub-playlist lines must pass through the proxy for CORS.
+                if (!isMediaSegment(trimmed) && isLikelySubPlaylist(trimmed)) {
                     return `${getPublicBase(req)}/api/scraper/proxy?url=${encodeURIComponent(absolute)}${proxySuffix}`;
                 }
 

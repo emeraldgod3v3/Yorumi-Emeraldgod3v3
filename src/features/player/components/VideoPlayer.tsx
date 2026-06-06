@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
+import Hls from 'hls.js';
 import { Maximize, X } from 'lucide-react';
 import LoadingSpinner from '../../../components/ui/LoadingSpinner';
 import type { StreamLink, SubtitleTrack } from '../../../types/stream';
@@ -30,6 +31,7 @@ export interface VideoPlayerProps {
     onQualityChange: (index: number) => void;
     onSetAutoQuality: () => void;
     selectedServer: StreamServerKey;
+    serverOptions: Array<{ key: StreamServerKey; label: string }>;
     onServerChange: (server: StreamServerKey) => void;
     displayMode?: 'full' | 'mini';
     onMiniClose?: () => void;
@@ -63,6 +65,7 @@ export default function VideoPlayer(props: VideoPlayerProps) {
         onQualityChange,
         onSetAutoQuality,
         selectedServer,
+        serverOptions,
         onServerChange,
         displayMode = 'full',
         onMiniClose,
@@ -78,6 +81,7 @@ export default function VideoPlayer(props: VideoPlayerProps) {
     const startAtRef = useRef(startAtSeconds);
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const lastResolvedStreamUrlRef = useRef<string | undefined>(undefined);
+    const hlsRef = useRef<Hls | null>(null);
     const apiOrigin = API_BASE.replace(/\/+$/, '').replace(/\/api$/i, '');
 
     const resolvedStreamUrl = useMemo(() => {
@@ -88,7 +92,8 @@ export default function VideoPlayer(props: VideoPlayerProps) {
     }, [apiOrigin, streamUrl]);
 
     const shouldUseNativeVideo = useMemo(() => {
-        if (!resolvedStreamUrl || isHls) return false;
+        if (!resolvedStreamUrl) return false;
+        if (isHls || /\.m3u8(?:[?#]|$)/i.test(resolvedStreamUrl)) return true;
         if (/\/api\/scraper\/embed\?/i.test(resolvedStreamUrl)) return false;
         if (/\/api\/scraper\/proxy\?/i.test(resolvedStreamUrl)) return true;
         if (/\.(mp4|webm|mkv)(?:[?#]|$)/i.test(resolvedStreamUrl)) return true;
@@ -119,10 +124,8 @@ export default function VideoPlayer(props: VideoPlayerProps) {
         if (!sourceChanged) return;
 
         const start = Number(startAtRef.current || 0);
-        if (start <= 0) return;
-
         const applyStart = () => {
-            if (Number.isFinite(video.duration) && start < video.duration - 1) {
+            if (start > 0 && Number.isFinite(video.duration) && start < video.duration - 1) {
                 video.currentTime = start;
             }
         };
@@ -131,6 +134,49 @@ export default function VideoPlayer(props: VideoPlayerProps) {
         video.addEventListener('loadedmetadata', applyStart, { once: true });
         return () => video.removeEventListener('loadedmetadata', applyStart);
     }, [resolvedStreamUrl, shouldUseNativeVideo]);
+
+    useEffect(() => {
+        const video = videoRef.current;
+        if (!video || !shouldUseNativeVideo || !resolvedStreamUrl) return;
+
+        const isHlsStream = Boolean(isHls) || /\.m3u8(?:[?#]|$)/i.test(resolvedStreamUrl);
+        if (!isHlsStream) return;
+
+        hlsRef.current?.destroy();
+        hlsRef.current = null;
+
+        if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = resolvedStreamUrl;
+            return;
+        }
+
+        if (!Hls.isSupported()) {
+            video.src = resolvedStreamUrl;
+            return;
+        }
+
+        const hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: false,
+        });
+        hlsRef.current = hls;
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+            hls.loadSource(resolvedStreamUrl);
+        });
+        hls.on(Hls.Events.ERROR, (_, data) => {
+            if (data.fatal) {
+                onErrorRef.current?.();
+            }
+        });
+
+        return () => {
+            hls.destroy();
+            if (hlsRef.current === hls) {
+                hlsRef.current = null;
+            }
+        };
+    }, [isHls, resolvedStreamUrl, shouldUseNativeVideo]);
 
     return (
         <div className={`watch-player-shell w-full max-w-full h-full max-h-full relative bg-[#0b0c0f] group transition-all duration-300 overflow-hidden rounded-none shadow-none outline-none ${displayMode === 'mini' ? 'rounded-xl shadow-2xl shadow-black/70' : 'md:rounded-2xl md:shadow-2xl md:shadow-black/80'}`}>
@@ -141,7 +187,7 @@ export default function VideoPlayer(props: VideoPlayerProps) {
                             <>
                                 <video
                                     ref={videoRef}
-                                    src={resolvedStreamUrl}
+                                    src={isHls || /\.m3u8(?:[?#]|$)/i.test(resolvedStreamUrl) ? undefined : resolvedStreamUrl}
                                     className="w-full h-full bg-black cursor-pointer object-contain"
                                     onClick={() => {
                                         if (videoRef.current?.paused) videoRef.current.play();
@@ -187,6 +233,7 @@ export default function VideoPlayer(props: VideoPlayerProps) {
                                     onQualityChange={onQualityChange}
                                     onSetAutoQuality={onSetAutoQuality}
                                     selectedServer={selectedServer}
+                                    serverOptions={serverOptions}
                                     onServerChange={onServerChange}
                                     mode={displayMode}
                                     onMiniClose={onMiniClose}

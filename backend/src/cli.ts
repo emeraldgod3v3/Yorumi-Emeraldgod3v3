@@ -5,7 +5,7 @@ import { mkdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import axios from 'axios';
-import { AnimePaheScraper } from './scraper/animepahe.js';
+import { AllMangaScraper } from './scraper/allmanga.js';
 
 type CliOptions = {
     download: boolean;
@@ -159,7 +159,7 @@ const runFfmpeg = (inputUrl: string, outputPath: string) => new Promise<void>((r
     const args = [
         '-y',
         '-headers',
-        'User-Agent: Mozilla/5.0\r\nReferer: https://animepahe.pw/\r\n',
+        'User-Agent: Mozilla/5.0\r\nReferer: https://allmanga.to/\r\n',
         '-i',
         inputUrl,
         '-c',
@@ -189,7 +189,7 @@ const downloadFile = async (inputUrl: string, outputPath: string) => {
         timeout: 30000,
         headers: {
             'User-Agent': 'Mozilla/5.0',
-            Referer: 'https://animepahe.pw/',
+            Referer: 'https://allmanga.to/',
         },
     });
 
@@ -201,30 +201,23 @@ const downloadAnime = async (options: CliOptions) => {
         throw new Error('Missing anime title. Example: yorumi-cli download anime "Frieren" -e 1');
     }
 
-    const scraper = new AnimePaheScraper();
+    const scraper = new AllMangaScraper();
 
     try {
         console.log(`Searching for "${options.title}"...`);
-        const results = await scraper.search(options.title);
+        const results = await scraper.searchAnime(options.title);
         const anime = Array.isArray(results) ? results[0] : null;
         if (!anime) throw new Error(`No anime found for "${options.title}"`);
 
-        const animeSession = String(anime.session || anime.id || '').trim();
         const animeTitle = String(anime.title || options.title).trim();
         console.log(`Selected: ${animeTitle}`);
 
-        const episodePayload = await scraper.getEpisodes(animeSession);
-        const episodes = Array.isArray(episodePayload?.episodes) ? episodePayload.episodes : [];
-        const episode = episodes.find((item: any) => Number(item?.episodeNumber) === options.episode);
-        if (!episode) throw new Error(`Episode ${options.episode} was not found for "${animeTitle}"`);
-
         console.log(`Resolving episode ${options.episode} stream...`);
-        const episodeSession = String(episode.session || episode.id || '');
-        const streams = await scraper.getLinks(animeSession, episodeSession);
+        const streams = await scraper.getLinksForEpisodeNumber(animeTitle, options.episode);
         const stream = (Array.isArray(streams) ? streams : []).sort((a, b) => scoreStream(b, options) - scoreStream(a, options))[0];
         if (!stream) throw new Error('No downloadable stream was found for this episode');
 
-        const inputUrl = String(stream.directUrl || await scraper.resolveStreamUrl(stream) || stream.url || '').trim();
+        const inputUrl = String(stream.directUrl || stream.url || '').trim();
         if (!inputUrl) throw new Error('The selected stream did not include a playable URL');
 
         const extension = /\.m3u8(?:[?#]|$)/i.test(inputUrl) || stream.isHls ? 'mp4' : path.extname(new URL(inputUrl).pathname).replace('.', '') || 'mp4';
@@ -249,8 +242,8 @@ const downloadAnime = async (options: CliOptions) => {
         }
 
         console.log('Download complete.');
-    } finally {
-        await scraper.close();
+    } catch (error) {
+        throw error;
     }
 };
 

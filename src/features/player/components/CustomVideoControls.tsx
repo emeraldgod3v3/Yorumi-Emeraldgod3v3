@@ -18,6 +18,7 @@ interface CustomVideoControlsProps {
     onQualityChange: (index: number) => void;
     onSetAutoQuality: () => void;
     selectedServer: StreamServerKey;
+    serverOptions: Array<{ key: StreamServerKey; label: string }>;
     onServerChange: (server: StreamServerKey) => void;
     streamKey?: string;
     mode?: 'full' | 'mini';
@@ -57,6 +58,7 @@ export default function CustomVideoControls({
     onQualityChange,
     onSetAutoQuality,
     selectedServer,
+    serverOptions,
     onServerChange,
     streamKey,
     mode = 'full',
@@ -73,13 +75,14 @@ export default function CustomVideoControls({
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [showControls, setShowControls] = useState(true);
     const [showSettings, setShowSettings] = useState(false);
-    const [settingsView, setSettingsView] = useState<'main' | 'speed' | 'quality'>('main');
+    const [settingsView, setSettingsView] = useState<'main' | 'speed' | 'quality' | 'server'>('main');
     const [playbackSpeed, setPlaybackSpeed] = useState(1);
     const [centerAction, setCenterAction] = useState<{ type: 'play' | 'pause'; id: number } | null>(null);
 
     const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const currentStream = streams[selectedStreamIndex];
     const currentQuality = currentStream ? getMappedQuality(currentStream.quality) : '1080P';
+    const selectedServerLabel = serverOptions.find((server) => server.key === selectedServer)?.label || 'Auto';
     const hasDub = availableAudios.includes('dub');
     const adjacentHandler = hasNextEpisode ? onNextEpisode : onPrevEpisode;
     const AdjacentIcon = hasNextEpisode ? SkipForward : SkipBack;
@@ -412,9 +415,9 @@ export default function CustomVideoControls({
             )}
 
             <div 
-                className={`absolute bottom-0 left-0 right-0 p-4 sm:p-6 transition-opacity duration-300 z-[2147483647] pointer-events-none ${showControls || !isPlaying ? 'opacity-100' : 'opacity-0'}`}
+                className={`absolute bottom-0 left-0 right-0 p-2 sm:p-6 transition-opacity duration-300 z-[2147483647] pointer-events-none ${showControls || !isPlaying ? 'opacity-100' : 'opacity-0'}`}
             >
-                <div className="mx-auto max-w-5xl flex flex-col gap-4 pointer-events-auto">
+                <div className="mx-auto max-w-5xl flex flex-col gap-3 sm:gap-4 pointer-events-auto">
                     {/* Scrubber / Progress Bar */}
                     <div className="relative h-1 w-full bg-white/20 cursor-pointer group rounded-full">
                         <div 
@@ -437,32 +440,32 @@ export default function CustomVideoControls({
                     </div>
 
                     {/* Controls */}
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex w-full items-center justify-center gap-1 sm:justify-between sm:gap-3">
                         {/* Left Controls */}
-                        <div className="flex items-center gap-2">
+                        <div className="flex min-w-0 items-center gap-1 sm:gap-2">
                             <button 
                                 onClick={togglePlay} 
-                                className={`${GLASS_BUTTON_CLASS} w-12 h-10`}
+                                className={`${GLASS_BUTTON_CLASS} h-7 w-7 sm:h-10 sm:w-12`}
                             >
-                                {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
+                                {isPlaying ? <Pause className="h-3.5 w-3.5 fill-current sm:h-5 sm:w-5" /> : <Play className="h-3.5 w-3.5 fill-current sm:h-5 sm:w-5" />}
                             </button>
                             
                             {adjacentHandler && (
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); adjacentHandler(); }}
                                     title={hasNextEpisode ? 'Next Episode' : 'Previous Episode'}
-                                    className={`${GLASS_BUTTON_CLASS} w-12 h-10`}
+                                    className={`${GLASS_BUTTON_CLASS} h-7 w-7 sm:h-10 sm:w-12`}
                                 >
-                                    <AdjacentIcon className="w-5 h-5 fill-current" />
+                                    <AdjacentIcon className="h-3.5 w-3.5 fill-current sm:h-5 sm:w-5" />
                                 </button>
                             )}
                             
-                            <div className={`${GLASS_PANEL_CLASS} group/volume flex items-center h-10 transition-all duration-300 overflow-hidden w-12 hover:w-32`}>
+                            <div className={`${GLASS_PANEL_CLASS} group/volume flex h-7 w-7 items-center overflow-hidden transition-all duration-300 sm:h-10 sm:w-12 sm:hover:w-32`}>
                                 <button 
                                     onClick={toggleMute} 
-                                    className="w-12 h-10 flex-shrink-0 flex items-center justify-center"
+                                    className="flex h-7 w-7 flex-shrink-0 items-center justify-center sm:h-10 sm:w-12"
                                 >
-                                    {isMuted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                                    {isMuted || volume === 0 ? <VolumeX className="h-3.5 w-3.5 sm:h-5 sm:w-5" /> : <Volume2 className="h-3.5 w-3.5 sm:h-5 sm:w-5" />}
                                 </button>
                                 <input 
                                     type="range" 
@@ -477,34 +480,34 @@ export default function CustomVideoControls({
                                             videoRef.current.muted = val === 0;
                                         }
                                     }}
-                                    className="w-16 h-1 rounded-full appearance-none cursor-pointer outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full"
+                                    className="hidden h-1 w-16 cursor-pointer appearance-none rounded-full outline-none sm:block [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white"
                                     style={{ background: `linear-gradient(to right, white ${(isMuted ? 0 : volume) * 100}%, rgba(255,255,255,0.3) ${(isMuted ? 0 : volume) * 100}%)` }}
                                 />
                             </div>
 
-                            <div className={`${GLASS_PANEL_CLASS} px-4 h-10 flex items-center justify-center text-xs font-medium tracking-wider`}>
+                            <div className={`${GLASS_PANEL_CLASS} flex h-7 min-w-[62px] items-center justify-center px-1.5 text-[9px] font-bold tracking-normal sm:h-10 sm:min-w-0 sm:px-4 sm:text-xs sm:font-medium sm:tracking-wider`}>
                                 {formatTime(currentTime)} / {formatTime(duration)}
                             </div>
                         </div>
 
                         {/* Right Controls */}
-                        <div className="flex items-center gap-2">
+                        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
                             <button
                                 onClick={() => seekBy(-SEEK_SECONDS)}
-                                className={`${GLASS_BUTTON_CLASS} h-10 w-12`}
+                                className={`${GLASS_BUTTON_CLASS} h-7 w-7 sm:h-10 sm:w-12`}
                                 title="Back 5 seconds"
                             >
                                 <SeekIcon direction="back" />
                             </button>
                             <button
                                 onClick={() => seekBy(SEEK_SECONDS)}
-                                className={`${GLASS_BUTTON_CLASS} h-10 w-12`}
+                                className={`${GLASS_BUTTON_CLASS} h-7 w-7 sm:h-10 sm:w-12`}
                                 title="Forward 5 seconds"
                             >
                                 <SeekIcon direction="forward" />
                             </button>
 
-                            <div className={`${GLASS_PANEL_CLASS} flex items-center gap-1 px-3 h-10 relative`}>
+                            <div className={`${GLASS_PANEL_CLASS} relative flex h-7 items-center gap-0 px-0 sm:h-10 sm:gap-1 sm:px-3`}>
                                 {/* Settings Popover */}
                                 {showSettings && (
                                     <div className="absolute bottom-full right-0 mb-4 w-72 bg-[#1A1A1A]/95 backdrop-blur-xl rounded-2xl p-2 shadow-2xl border border-white/10 z-50">
@@ -514,7 +517,7 @@ export default function CustomVideoControls({
                                                 className="mb-2 flex w-full items-center gap-2 border-b border-white/10 px-2 pb-3 pt-1 text-left text-sm font-semibold text-white"
                                             >
                                                 <ChevronLeft className="h-4 w-4" />
-                                                {settingsView === 'quality' ? 'Quality' : 'Playback speed'}
+                                                {settingsView === 'quality' ? 'Quality' : settingsView === 'server' ? 'Server' : 'Playback speed'}
                                             </button>
                                         )}
 
@@ -554,14 +557,14 @@ export default function CustomVideoControls({
                                                     <span className="text-xs text-white/70">{isAutoQuality ? `Auto(${currentQuality})` : currentQuality}</span>
                                                 </button>
                                                 <button
-                                                    onClick={() => onServerChange('auto')}
+                                                    onClick={() => setSettingsView('server')}
                                                     className="flex items-center justify-between w-full p-3 hover:bg-white/10 rounded-xl transition-colors"
                                                 >
                                                     <div className="flex items-center gap-3 text-white">
                                                         <Monitor className="w-5 h-5" />
                                                         <span className="text-sm font-medium">Server</span>
                                                     </div>
-                                                    <span className="text-xs text-white/70">{selectedServer === 'auto' ? 'Default' : selectedServer}</span>
+                                                    <span className="text-xs text-white/70">{selectedServer === 'auto' ? 'Default' : selectedServerLabel}</span>
                                                 </button>
                                             </div>
                                         )}
@@ -601,24 +604,43 @@ export default function CustomVideoControls({
                                                 })}
                                             </div>
                                         )}
+
+                                        {settingsView === 'server' && (
+                                            <div className="flex flex-col gap-1">
+                                                {serverOptions.map((server) => (
+                                                    <button
+                                                        key={server.key}
+                                                        onClick={() => {
+                                                            onServerChange(server.key);
+                                                            onSetAutoQuality();
+                                                            setSettingsView('main');
+                                                        }}
+                                                        className={`flex w-full items-center justify-between rounded-xl p-3 text-left transition-colors ${selectedServer === server.key ? 'bg-white/10 text-white' : 'text-white/80 hover:bg-white/10'}`}
+                                                    >
+                                                        <span className="text-sm font-medium">{server.key === 'auto' ? 'Default' : server.label}</span>
+                                                        {selectedServer === server.key ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
-                                <button onClick={() => { setShowSettings(!showSettings); setSettingsView('main'); }} className="text-white hover:text-white/80 transition-colors p-2 rounded-full hover:bg-white/10">
-                                    <Settings className="w-5 h-5" />
+                                <button onClick={() => { setShowSettings(!showSettings); setSettingsView('main'); }} className="rounded-full p-1.5 text-white transition-colors hover:bg-white/10 hover:text-white/80 sm:p-2">
+                                    <Settings className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
                                 </button>
-                                <button className="text-white hover:text-white/80 transition-colors p-2 rounded-full hover:bg-white/10 hidden sm:block">
-                                    <Cast className="w-5 h-5" />
+                                <button className="rounded-full p-1.5 text-white transition-colors hover:bg-white/10 hover:text-white/80 sm:p-2">
+                                    <Cast className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
                                 </button>
                                 <button
                                     onClick={onToggleWide}
-                                    className={`hidden rounded-full p-2 text-white transition-colors sm:block ${isWide ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-white/10 hover:text-white/80'}`}
+                                    className={`rounded-full p-1.5 text-white transition-colors sm:p-2 ${isWide ? 'bg-white/20 hover:bg-white/25' : 'hover:bg-white/10 hover:text-white/80'}`}
                                     title={isWide ? 'Show episodes' : 'Wide player'}
                                 >
-                                    <Monitor className="w-5 h-5" />
+                                    <Monitor className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
                                 </button>
-                                <button onClick={toggleFullscreen} className="text-white hover:text-white/80 transition-colors p-2 rounded-full hover:bg-white/10">
-                                    {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+                                <button onClick={toggleFullscreen} className="rounded-full p-1.5 text-white transition-colors hover:bg-white/10 hover:text-white/80 sm:p-2">
+                                    {isFullscreen ? <Minimize className="h-3.5 w-3.5 sm:h-5 sm:w-5" /> : <Maximize className="h-3.5 w-3.5 sm:h-5 sm:w-5" />}
                                 </button>
                             </div>
                         </div>

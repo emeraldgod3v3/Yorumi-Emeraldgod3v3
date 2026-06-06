@@ -26,7 +26,7 @@ const getSourceLabel = (stream: StreamLink) => {
 export type StreamServerKey = 'auto' | 'allmanga';
 
 export const STREAM_SERVER_OPTIONS: Array<{ key: StreamServerKey; label: string }> = [
-    { key: 'auto', label: 'Auto' },
+    { key: 'auto', label: 'Default' },
     { key: 'allmanga', label: 'AllManga' },
 ];
 

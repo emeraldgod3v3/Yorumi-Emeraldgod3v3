@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { Eye, Maximize2, MessageCircle, Play, Send, Sparkles, X } from 'lucide-react';
 import { AnimatePresence, m } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
-import { askYumi, type YumiChatMessage } from '../../services/yumiService';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { askYumi, type YumiChatMessage, type YumiChatMode } from '../../services/yumiService';
 import {
     cleanYumiReply,
     getIntroReply,
@@ -22,9 +22,22 @@ const SUGGESTIONS = [
     { label: 'Feel-good', prompt: 'Recommend feel-good anime.' },
 ];
 
+const MANGA_SUGGESTIONS = [
+    { label: 'Surprise me!', prompt: 'Surprise me with manga, manhwa, or manhua recommendations.' },
+    { label: 'Trending manhwa', prompt: 'Recommend trending manhwa right now.' },
+    { label: 'Top fantasy', prompt: 'Recommend fantasy manga and manhwa with great progression.' },
+    { label: 'Hidden gems', prompt: 'Recommend hidden gem manga, manhwa, or manhua.' },
+    { label: 'Villainess', prompt: 'Recommend villainess manhwa with strong character drama.' },
+];
+
 const EMPTY_STATE_MESSAGE = {
     title: "Hey there! I'm Yumi",
     body: "Your AI anime assistant. Ask me for anime picks, hidden gems, or something that fits your mood.",
+};
+
+const MANGA_EMPTY_STATE_MESSAGE = {
+    title: "Hey there! I'm Yumi",
+    body: "Your AI manga assistant. Ask me for manga, manhwa, manhua, hidden gems, or something that fits your mood.",
 };
 
 const YUMI_TRANSFER_KEY = 'yorumi:yumi-transfer';
@@ -43,6 +56,25 @@ interface YumiChatProps {
 
 export default function YumiChat({ isLauncherHidden = false, onOpenChange }: YumiChatProps) {
     const navigate = useNavigate();
+    const location = useLocation();
+    const mode: YumiChatMode = location.pathname.startsWith('/manga') ? 'manga' : 'anime';
+    const isMangaMode = mode === 'manga';
+    const suggestions = isMangaMode ? MANGA_SUGGESTIONS : SUGGESTIONS;
+    const emptyStateMessage = isMangaMode ? MANGA_EMPTY_STATE_MESSAGE : EMPTY_STATE_MESSAGE;
+    const accentClass = isMangaMode ? 'bg-yorumi-manga text-white' : 'bg-yorumi-accent text-[#06101e]';
+    const launcherClass = isMangaMode ? 'bg-yorumi-manga hover:bg-yorumi-manga/90' : 'bg-yorumi-accent hover:bg-yorumi-accent/90';
+    const userBubbleClass = isMangaMode
+        ? 'bg-yorumi-manga text-white after:bg-yorumi-manga'
+        : 'bg-yorumi-accent text-[#06101e] after:bg-yorumi-accent';
+    const assistantBubbleClass = isMangaMode
+        ? 'bg-[#231634] before:bg-[#231634]'
+        : 'bg-[#132441] before:bg-[#132441]';
+    const cardClass = isMangaMode
+        ? 'bg-[#1f1430] hover:bg-[#2a1a42] hover:ring-yorumi-manga/35'
+        : 'bg-[#10213d] hover:bg-[#132946] hover:ring-yorumi-accent/30';
+    const secondaryButtonClass = isMangaMode
+        ? 'bg-[#3b2558] text-purple-100 hover:bg-[#4a2d6f] hover:text-white'
+        : 'bg-[#253a63] text-slate-300 hover:bg-[#2d4776] hover:text-white';
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState<YumiChatMessage[]>([]);
     const [turns, setTurns] = useState<YumiWidgetTurn[]>([]);
@@ -66,6 +98,15 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
     const handleDetailsClick = (card: YumiRecommendationCard) => {
         const item = card.item;
         if (!item) return;
+        if (card.mediaType === 'manga') {
+            const id = item.id || item.mal_id || ('scraper_id' in item ? item.scraper_id : undefined);
+            if (id) {
+                navigate(`/manga/details/${id}`, { state: { manga: item } });
+                setIsOpen(false);
+            }
+            return;
+        }
+
         const id = getAnimeDetailsRouteId(item);
         if (id) {
             navigate(`/anime/details/${id}`, { state: { anime: item } });
@@ -76,6 +117,15 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
     const handlePrimaryClick = (card: YumiRecommendationCard) => {
         const item = card.item;
         if (!item) return;
+        if (card.mediaType === 'manga') {
+            const id = item.id || item.mal_id || ('scraper_id' in item ? item.scraper_id : undefined);
+            if (id) {
+                navigate(`/manga/details/${id}`, { state: { manga: item } });
+                setIsOpen(false);
+            }
+            return;
+        }
+
         const id = getAnimeWatchRouteId(item) || getAnimeDetailsRouteId(item);
         if (id) {
             const title = slugify(item.title || card.title || 'anime');
@@ -98,13 +148,13 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
         setIsLoading(true);
 
         try {
-            const fullReply = cleanYumiReply(await askYumi(requestMessages));
+            const fullReply = cleanYumiReply(await askYumi(requestMessages, mode));
             const assistantReply = getIntroReply(fullReply);
             setMessages([...requestMessages, { role: 'assistant', content: fullReply }]);
             setTurns((current) => current.map((turn) =>
                 turn.id === turnId ? { ...turn, assistant: assistantReply } : turn
             ));
-            const cards = await resolveRecommendationCards(fullReply, 4);
+            const cards = await resolveRecommendationCards(fullReply, 4, mode);
             setTurns((current) => current.map((turn) =>
                 turn.id === turnId ? { ...turn, cards } : turn
             ));
@@ -154,17 +204,17 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
                         initial="initial"
                         animate="animate"
                         exit="exit"
-                        className="mb-3 flex h-[min(500px,calc(100vh-112px))] w-[calc(100vw-32px)] origin-bottom-right flex-col overflow-hidden rounded-[22px] bg-[#07111f]/95 text-white shadow-[0_24px_90px_rgba(0,0,0,0.65)] backdrop-blur-2xl sm:w-[390px]"
+                        className={`mb-3 flex h-[min(500px,calc(100vh-112px))] w-[calc(100vw-32px)] origin-bottom-right flex-col overflow-hidden rounded-[22px] text-white shadow-[0_24px_90px_rgba(0,0,0,0.65)] backdrop-blur-2xl sm:w-[390px] ${isMangaMode ? 'bg-[#120a1c]/95' : 'bg-[#07111f]/95'}`}
                         aria-label="Yumi recommendation chat"
                     >
-                        <header className="flex items-center justify-between bg-[#0f1d34] px-5 py-3">
+                        <header className={`flex items-center justify-between px-5 py-3 ${isMangaMode ? 'bg-[#20122f]' : 'bg-[#0f1d34]'}`}>
                             <div className="flex items-center gap-3">
-                                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-yorumi-accent text-[#06101e]">
+                                <div className={`flex h-9 w-9 items-center justify-center rounded-full ${accentClass}`}>
                                     <Sparkles className="h-5 w-5" />
                                 </div>
                                 <div>
                                     <h2 className="text-lg font-black leading-tight">Yumi</h2>
-                                    <p className="text-xs font-semibold text-slate-400">AI Anime Assistant</p>
+                                    <p className="text-xs font-semibold text-slate-400">{isMangaMode ? 'AI Manga Assistant' : 'AI Anime Assistant'}</p>
                                 </div>
                             </div>
 
@@ -188,7 +238,7 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
                             </div>
                         </header>
 
-                        <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4 scrollbar-thin scrollbar-thumb-yorumi-accent/30 scrollbar-track-transparent">
+                        <div className={`flex-1 space-y-3 overflow-y-auto px-5 py-4 scrollbar-thin scrollbar-track-transparent ${isMangaMode ? 'scrollbar-thumb-yorumi-manga/30' : 'scrollbar-thumb-yorumi-accent/30'}`}>
                             {turns.length === 0 && (
                                 <m.div
                                     variants={cardItemVariants}
@@ -196,12 +246,12 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
                                     animate="animate"
                                     className="flex min-h-[250px] flex-col items-center justify-center text-center"
                                 >
-                                    <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-yorumi-accent text-[#06101e]">
+                                    <div className={`mb-6 flex h-16 w-16 items-center justify-center rounded-full ${accentClass}`}>
                                         <Sparkles className="h-8 w-8" />
                                     </div>
-                                    <h3 className="text-xl font-black text-white">{EMPTY_STATE_MESSAGE.title}</h3>
+                                    <h3 className="text-xl font-black text-white">{emptyStateMessage.title}</h3>
                                     <p className="mt-4 max-w-[280px] text-sm font-semibold leading-relaxed text-slate-500">
-                                        {EMPTY_STATE_MESSAGE.body}
+                                        {emptyStateMessage.body}
                                     </p>
                                 </m.div>
                             )}
@@ -214,7 +264,7 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
                                         animate="animate"
                                         className="flex justify-end"
                                     >
-                                        <div className="relative max-w-[82%] rounded-2xl rounded-br-md bg-yorumi-accent px-4 py-2.5 text-sm leading-relaxed text-[#06101e] shadow-lg after:absolute after:bottom-0 after:right-[-6px] after:h-3 after:w-3 after:bg-yorumi-accent after:[clip-path:polygon(0_0,100%_100%,0_100%)]">
+                                        <div className={`relative max-w-[82%] rounded-2xl rounded-br-md px-4 py-2.5 text-sm leading-relaxed shadow-lg after:absolute after:bottom-0 after:right-[-6px] after:h-3 after:w-3 after:[clip-path:polygon(0_0,100%_100%,0_100%)] ${userBubbleClass}`}>
                                             {turn.user}
                                         </div>
                                     </m.div>
@@ -226,10 +276,10 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
                                             animate="animate"
                                             className="flex items-start gap-3"
                                         >
-                                            <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-yorumi-accent text-[#06101e]">
+                                            <div className={`mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${accentClass}`}>
                                                 <Sparkles className="h-4 w-4" />
                                             </div>
-                                            <div className="relative max-w-[calc(100%-44px)] whitespace-pre-wrap rounded-2xl rounded-bl-md bg-[#132441] px-4 py-2.5 text-sm leading-relaxed text-slate-100 shadow-lg before:absolute before:bottom-0 before:left-[-6px] before:h-3 before:w-3 before:bg-[#132441] before:[clip-path:polygon(100%_0,100%_100%,0_100%)]">
+                                            <div className={`relative max-w-[calc(100%-44px)] whitespace-pre-wrap rounded-2xl rounded-bl-md px-4 py-2.5 text-sm leading-relaxed text-slate-100 shadow-lg before:absolute before:bottom-0 before:left-[-6px] before:h-3 before:w-3 before:[clip-path:polygon(100%_0,100%_100%,0_100%)] ${assistantBubbleClass}`}>
                                                 {turn.assistant}
                                             </div>
                                         </m.div>
@@ -245,7 +295,7 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
                                             transition={{ duration: 0.18, ease: 'easeOut' }}
                                             className="pl-[44px]"
                                         >
-                                            <div className="flex gap-3 rounded-lg bg-[#10213d] p-3 shadow-lg transition-colors hover:bg-[#132946] hover:ring-1 hover:ring-yorumi-accent/30">
+                                            <div className={`flex gap-3 rounded-lg p-3 shadow-lg transition-colors hover:ring-1 ${cardClass}`}>
                                                 <div className="h-[82px] w-[58px] shrink-0 overflow-hidden rounded-md bg-black/30">
                                                     {card.image ? (
                                                         <img src={card.image} alt={card.title} className="h-full w-full object-cover" loading="lazy" />
@@ -269,16 +319,16 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
                                                             whileTap={pressMotion}
                                                             onClick={() => handlePrimaryClick(card)}
                                                             disabled={!card.item}
-                                                            className="inline-flex items-center justify-center gap-1 rounded-md bg-yorumi-accent px-2.5 py-1.5 text-[11px] font-black leading-none text-[#06101e] transition-colors hover:bg-yorumi-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+                                                            className={`inline-flex items-center justify-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-black leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${isMangaMode ? 'bg-yorumi-manga text-white hover:bg-yorumi-manga/90' : 'bg-yorumi-accent text-[#06101e] hover:bg-yorumi-accent/90'}`}
                                                         >
                                                             <Play className="h-3 w-3 shrink-0" />
-                                                            Watch
+                                                            {card.mediaType === 'manga' ? 'Read' : 'Watch'}
                                                         </m.button>
                                                         <m.button
                                                             whileTap={pressMotion}
                                                             onClick={() => handleDetailsClick(card)}
                                                             disabled={!card.item}
-                                                            className="inline-flex items-center justify-center gap-1 rounded-md bg-[#253a63] px-2.5 py-1.5 text-[11px] font-bold leading-none text-slate-300 transition-colors hover:bg-[#2d4776] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                                                            className={`inline-flex items-center justify-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-bold leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${secondaryButtonClass}`}
                                                         >
                                                             <Eye className="h-3 w-3 shrink-0" />
                                                             Details
@@ -293,10 +343,10 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
 
                             {isLoading && (
                                 <m.div variants={dropdownVariants} initial="initial" animate="animate" exit="exit" className="flex items-center gap-3">
-                                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-yorumi-accent text-[#06101e]">
+                                    <div className={`flex h-8 w-8 items-center justify-center rounded-full ${accentClass}`}>
                                         <Sparkles className="h-4 w-4" />
                                     </div>
-                                    <div className="relative flex h-10 items-center gap-1.5 rounded-2xl rounded-bl-md bg-[#132441] px-4 shadow-lg before:absolute before:bottom-0 before:left-[-6px] before:h-3 before:w-3 before:bg-[#132441] before:[clip-path:polygon(100%_0,100%_100%,0_100%)]">
+                                    <div className={`relative flex h-10 items-center gap-1.5 rounded-2xl rounded-bl-md px-4 shadow-lg before:absolute before:bottom-0 before:left-[-6px] before:h-3 before:w-3 before:[clip-path:polygon(100%_0,100%_100%,0_100%)] ${assistantBubbleClass}`}>
                                         {[0, 1, 2].map((dot) => (
                                             <span
                                                 key={dot}
@@ -311,15 +361,15 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
                             <div ref={messagesEndRef} />
                         </div>
 
-                        <div className="bg-[#081321] p-3">
+                        <div className={`p-3 ${isMangaMode ? 'bg-[#130b1f]' : 'bg-[#081321]'}`}>
                             {turns.length === 0 && (
                                 <div className="mb-4 flex flex-wrap gap-2">
-                                    {SUGGESTIONS.map((suggestion) => (
+                                    {suggestions.map((suggestion) => (
                                         <m.button
                                             key={suggestion.label}
                                             whileTap={pressMotion}
                                             onClick={() => submitMessage(suggestion.prompt, suggestion.label)}
-                                            className="shrink-0 rounded-full bg-[#122a48] px-3 py-1.5 text-xs font-semibold text-slate-300 transition-colors hover:bg-[#17365d] hover:text-white"
+                                            className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors hover:text-white ${isMangaMode ? 'bg-[#26143c] text-purple-100 hover:bg-[#352054]' : 'bg-[#122a48] text-slate-300 hover:bg-[#17365d]'}`}
                                         >
                                             {suggestion.label}
                                         </m.button>
@@ -332,14 +382,14 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
                                     ref={inputRef}
                                     value={input}
                                     onChange={(event) => setInput(event.target.value)}
-                                    placeholder="Ask Yumi anything..."
-                                    className="h-10 min-w-0 flex-1 rounded-lg bg-[#030913] px-4 text-sm text-white outline-none ring-1 ring-yorumi-accent/60 transition-shadow placeholder:text-slate-500 focus:ring-2 focus:ring-yorumi-accent"
+                                    placeholder={isMangaMode ? 'Ask Yumi about manga...' : 'Ask Yumi anything...'}
+                                    className={`h-10 min-w-0 flex-1 rounded-lg px-4 text-sm text-white outline-none ring-1 transition-shadow placeholder:text-slate-500 focus:ring-2 ${isMangaMode ? 'bg-[#08030d] ring-yorumi-manga/60 focus:ring-yorumi-manga' : 'bg-[#030913] ring-yorumi-accent/60 focus:ring-yorumi-accent'}`}
                                     maxLength={500}
                                 />
                                 <m.button
                                     whileTap={pressMotion}
                                     disabled={!input.trim() || isLoading}
-                                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-yorumi-accent text-[#06101e] transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
+                                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50 ${accentClass}`}
                                     aria-label="Send message to Yumi"
                                 >
                                     <Send className="h-4 w-4" />
@@ -374,7 +424,7 @@ export default function YumiChat({ isLauncherHidden = false, onOpenChange }: Yum
                         animate="animate"
                         whileTap={pressMotion}
                         onClick={handleOpen}
-                        className="ml-auto flex h-12 w-12 items-center justify-center rounded-full bg-yorumi-accent text-white shadow-lg transition-all duration-300 ease-out hover:scale-110 hover:bg-yorumi-accent/90 active:scale-95"
+                        className={`ml-auto flex h-12 w-12 items-center justify-center rounded-full text-white shadow-lg transition-all duration-300 ease-out hover:scale-110 active:scale-95 ${launcherClass}`}
                         aria-label="Open Yumi chat"
                     >
                         <MessageCircle className="h-6 w-6" strokeWidth={2.5} />

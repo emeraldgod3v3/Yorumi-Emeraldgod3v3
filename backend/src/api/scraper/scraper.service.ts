@@ -1,14 +1,17 @@
 import { AllMangaScraper } from '../../scraper/allmanga';
+
 import { acquireLock, cacheGet, cacheSet, releaseLock } from '../../utils/redis-cache';
 
 export class ScraperService {
     private allMangaScraper: AllMangaScraper;
+
     private cache = new Map<string, { expiresAt: number; value: any }>();
     private inFlight = new Map<string, Promise<any>>();
     private hotStreamKeys = new Map<string, { animeSession: string; epSession: string; hits: number; lastAccess: number }>();
 
     constructor() {
         this.allMangaScraper = new AllMangaScraper();
+
     }
 
     private isAnimePaheSession(session: string) {
@@ -422,13 +425,20 @@ export class ScraperService {
 
     async getEpisodes(session: string, expectedEpisodes: number = 0) {
         if (this.isAllMangaSession(session)) {
+            const isGoodPayload = (value: any) => {
+                const episodes = Array.isArray(value?.episodes) ? value.episodes : [];
+                if (episodes.length === 0) return false;
+                // If caller told us how many episodes to expect, don't accept anything below 80% of that
+                if (expectedEpisodes > 1 && episodes.length < Math.floor(expectedEpisodes * 0.8)) return false;
+                return true;
+            };
             return this.getOrLoad(
                 `episodes:allmanga:v3:${session}`,
                 60 * 60 * 1000,
                 async () => this.allMangaScraper.getEpisodes(session),
                 {
-                    shouldCache: (value) => Array.isArray((value as any)?.episodes) && (value as any).episodes.length > 0,
-                    allowCached: (value) => Array.isArray((value as any)?.episodes) && (value as any).episodes.length > 0,
+                    shouldCache: isGoodPayload,
+                    allowCached: isGoodPayload,
                 }
             );
         }
@@ -500,6 +510,8 @@ export class ScraperService {
 
     async getStreams(animeSession: string, epSession: string, options?: { provider?: string; title?: string; episodeNumber?: number }) {
         const provider = String(options?.provider || 'auto').trim().toLowerCase() || 'auto';
+
+
         if (provider === 'allmanga' || this.isAllMangaSession(animeSession)) {
             const title = String(options?.title || this.queryFromSessionSlug(animeSession)).trim();
             const episodeNumber = Number(options?.episodeNumber || this.parseEpisodeNumber(epSession));

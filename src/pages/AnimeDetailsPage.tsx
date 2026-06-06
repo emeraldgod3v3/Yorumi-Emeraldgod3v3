@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAnime } from '../hooks/useAnime';
 import { useWatchList } from '../hooks/useWatchList';
 import { useFavoriteAnime } from '../hooks/useFavoriteAnime';
 import { slugify } from '../utils/slugify';
-import type { Anime } from '../types/anime';
+import type { Anime, Episode } from '../types/anime';
 import type { WatchListItem } from '../utils/storage';
 
 // Feature Components
@@ -63,6 +63,44 @@ const TrailersSkeleton = () => (
         </div>
     </div>
 );
+
+const buildInstantEpisodes = (anime: Anime | null): Episode[] => {
+    if (!anime) return [];
+
+    const metadata = Array.isArray(anime.episodeMetadata) ? anime.episodeMetadata : [];
+    const metadataEpisodes = metadata.map((item, index): Episode => {
+        const match = item.title?.match(/Episode\s+(\d+(?:\.\d+)?)/i);
+        const episodeNumber = match?.[1] || String(index + 1);
+
+        return {
+            session: `instant:${episodeNumber}`,
+            episodeNumber,
+            title: item.title,
+            snapshot: item.thumbnail,
+        };
+    });
+    const latestEpisode = Number(anime.latestEpisode || 0);
+    const totalEpisodes = Number(anime.episodes || 0);
+    const expectedCount = Math.min(
+        1500,
+        Math.max(
+            metadataEpisodes.length,
+            Number.isFinite(latestEpisode) ? latestEpisode : 0,
+            Number.isFinite(totalEpisodes) ? totalEpisodes : 0
+        )
+    );
+
+    if (expectedCount <= 0) return metadataEpisodes;
+
+    const byEpisodeNumber = new Map(metadataEpisodes.map((episode) => [episode.episodeNumber, episode]));
+    return Array.from({ length: expectedCount }, (_, index) => {
+        const episodeNumber = String(index + 1);
+        return byEpisodeNumber.get(episodeNumber) || {
+            session: `instant:${episodeNumber}`,
+            episodeNumber,
+        };
+    });
+};
 
 const DetailsPageSkeleton = () => (
     <div className="min-h-screen bg-[#0a0a0a] pb-20 fade-in animate-in duration-300">
@@ -150,6 +188,8 @@ export default function AnimeDetailsPage() {
     const navigate = useNavigate();
     const location = useLocation();
     const animeHook = useAnime();
+    const { selectedAnime, episodes, epLoading, episodesResolved, episodesBackgroundLoading, detailsLoading, error, watchedEpisodes, markEpisodeComplete } = animeHook;
+    const handleAnimeClickRef = useRef(animeHook.handleAnimeClick);
     const breadcrumbParent = typeof location.state?.breadcrumbParent === 'string'
         ? location.state.breadcrumbParent
         : undefined;
@@ -159,6 +199,10 @@ export default function AnimeDetailsPage() {
     };
     const isAnimePaheSession = (value: unknown) =>
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+
+    useEffect(() => {
+        handleAnimeClickRef.current = animeHook.handleAnimeClick;
+    }, [animeHook.handleAnimeClick]);
 
     // We need to sync the URL ID with the hook's selectedAnime
     useEffect(() => {
@@ -180,7 +224,7 @@ export default function AnimeDetailsPage() {
             }
             const fallbackTitle = routeAnime?.title || scraperSession.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
 
-            animeHook.handleAnimeClick({
+            handleAnimeClickRef.current({
                 ...(routeAnime || {}),
                 id: routeAnime?.id || 0,
                 mal_id: routeAnime?.mal_id || 0,
@@ -195,7 +239,7 @@ export default function AnimeDetailsPage() {
         if (Number.isFinite(parsedId) && parsedId > 0) {
             const seededAnilistId = toPositiveNumber(routeAnime?.id) || parsedId;
             const seededMalId = toPositiveNumber(routeAnime?.mal_id) || parsedId;
-            animeHook.handleAnimeClick({
+            handleAnimeClickRef.current({
                 ...(routeAnime || {}),
                 id: seededAnilistId,
                 mal_id: seededMalId
@@ -205,19 +249,12 @@ export default function AnimeDetailsPage() {
         }
     }, [id, location.state, navigate]);
 
-    const { selectedAnime, episodes, epLoading, episodesResolved, episodesBackgroundLoading, detailsLoading, error, watchedEpisodes, markEpisodeComplete } = animeHook;
     const { isInWatchList, addToWatchList, removeFromWatchList } = useWatchList();
     const { isFavorite, addFavorite, removeFavorite } = useFavoriteAnime();
     const [activeTab, setActiveTab] = useState<'summary' | 'relations'>('summary');
-    const [minimumSkeletonDone, setMinimumSkeletonDone] = useState(false);
     const [isStatusPickerOpen, setIsStatusPickerOpen] = useState(false);
     const [selectedWatchStatus, setSelectedWatchStatus] = useState<WatchListItem['status']>('watching');
-
-    useEffect(() => {
-        setMinimumSkeletonDone(false);
-        const timeout = window.setTimeout(() => setMinimumSkeletonDone(true), 220);
-        return () => window.clearTimeout(timeout);
-    }, [id]);
+    const instantEpisodes = useMemo(() => buildInstantEpisodes(selectedAnime), [selectedAnime]);
 
     // Derived state for button, but useWatchList is reactive so we can just use isInWatchList(id)
     const animeId = selectedAnime
@@ -313,7 +350,6 @@ export default function AnimeDetailsPage() {
         selectedAnime.anilist_banner_image?.trim()
     );
     const shouldShowPrimarySkeleton =
-        !minimumSkeletonDone ||
         (detailsLoading && (!hasResolvedTitle || !hasResolvedArtwork)) ||
         (!hasResolvedTitle && !hasResolvedArtwork);
 
@@ -322,7 +358,8 @@ export default function AnimeDetailsPage() {
     }
 
     const isUnreleased = selectedAnime.status === 'NOT_YET_RELEASED';
-    const hasEpisodes = episodes.length > 0;
+    const visibleEpisodes = episodes.length > 0 ? episodes : instantEpisodes;
+    const hasEpisodes = visibleEpisodes.length > 0;
     const hasCharacters = Boolean(selectedAnime.characters?.edges?.length);
     const hasTrailers = Boolean(selectedAnime.trailer);
     const isEpisodesResolving = !hasEpisodes && (!episodesResolved || epLoading || detailsLoading || episodesBackgroundLoading);
@@ -341,7 +378,7 @@ export default function AnimeDetailsPage() {
             <div className="container mx-auto px-4 md:px-6 -mt-24 md:-mt-32 relative z-10">
                 <DetailsInfo
                     anime={selectedAnime}
-                    episodesCount={episodes.length}
+                    episodesCount={visibleEpisodes.length}
                     isLoading={isEpisodesResolving}
                     inList={inList}
                     inFavorites={inFavorites}
@@ -404,9 +441,9 @@ export default function AnimeDetailsPage() {
                             {!isUnreleased && (
                                 isEpisodesResolving ? (
                                     <EpisodesSkeleton count={episodeSkeletonCount} />
-                                ) : episodes.length > 0 ? (
+                                ) : visibleEpisodes.length > 0 ? (
                                     <DetailsEpisodeGrid
-                                        episodes={episodes}
+                                        episodes={visibleEpisodes}
                                         watchedEpisodes={watchedEpisodes}
                                         onEpisodeClick={(ep) => {
                                             const raw = String(ep.episodeNumber ?? '').trim();

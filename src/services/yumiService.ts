@@ -5,6 +5,8 @@ export type YumiChatMessage = {
     content: string;
 };
 
+export type YumiChatMode = 'anime' | 'manga';
+
 type YumiChatResponse = {
     success: boolean;
     data?: {
@@ -13,13 +15,13 @@ type YumiChatResponse = {
     error?: string;
 };
 
-export async function askYumi(messages: YumiChatMessage[]) {
+export async function askYumi(messages: YumiChatMessage[], mode: YumiChatMode = 'anime') {
     const response = await fetch(`${API_BASE}/chat/yumi`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({ messages, mode }),
     });
 
     const payload = await response.json().catch(() => null) as YumiChatResponse | null;

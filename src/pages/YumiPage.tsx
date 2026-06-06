@@ -13,12 +13,18 @@ import {
     type YumiRecommendationCard,
 } from '../services/yumiRecommendations';
 import { db, isFirebaseEnabled } from '../services/firebase';
+import type { Anime } from '../types/anime';
 import { getAnimeDetailsRouteId, getAnimeWatchRouteId } from '../utils/animeNavigation';
 import { cardItemVariants, pressMotion } from '../utils/motion';
 import { slugify } from '../utils/slugify';
 import { storage } from '../utils/storage';
 
 type RecommendationCard = YumiRecommendationCard;
+
+const getAnimeCardItem = (card: RecommendationCard): Anime | null => {
+    if (card.mediaType === 'manga') return null;
+    return (card.item || null) as Anime | null;
+};
 
 type YumiConversationTurn = {
     id: string;
@@ -61,7 +67,7 @@ const sanitizeForFirestore = <T,>(value: T): T => JSON.parse(JSON.stringify(valu
 const getChatTitle = (turns: YumiConversationTurn[]) => turns[0]?.user || 'New Yumi chat';
 
 const getRecommendationWatchlistId = (card: RecommendationCard) => {
-    const item = card.item;
+    const item = getAnimeCardItem(card);
     if (!item) return '';
     return String(item.id || item.mal_id || item.scraperId || card.title);
 };
@@ -338,21 +344,21 @@ export default function YumiPage() {
     };
 
     const handleDetailsClick = (card: RecommendationCard) => {
-        const item = card.item;
+        const item = getAnimeCardItem(card);
         if (!item) return;
         const id = getAnimeDetailsRouteId(item);
         if (id) navigate(`/anime/details/${id}`, { state: { anime: item } });
     };
 
     const handlePrimaryClick = (card: RecommendationCard) => {
-        const item = card.item;
+        const item = getAnimeCardItem(card);
         if (!item) return;
         const id = getAnimeWatchRouteId(item) || getAnimeDetailsRouteId(item);
         if (id) navigate(`/anime/watch/${slugify(item.title || card.title || 'anime')}/${id}?ep=1`, { state: { anime: item } });
     };
 
     const handleAddToLibrary = (card: RecommendationCard) => {
-        const item = card.item;
+        const item = getAnimeCardItem(card);
         if (!item) return;
         const id = getRecommendationWatchlistId(card);
         if (!id) return;
