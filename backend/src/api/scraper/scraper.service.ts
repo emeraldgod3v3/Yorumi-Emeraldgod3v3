@@ -1,4 +1,5 @@
 import { AllMangaScraper } from '../../scraper/allmanga';
+import { GogoAnimeScraper } from '../../scraper/gogoanime';
 
 
 import { acquireLock, cacheGet, cacheSet, releaseLock } from '../../utils/redis-cache';
@@ -14,6 +15,7 @@ type StreamProviderOptions = {
 
 export class ScraperService {
     private allMangaScraper: AllMangaScraper;
+    private gogoAnimeScraper: GogoAnimeScraper;
 
 
     private cache = new Map<string, { expiresAt: number; value: any }>();
@@ -22,6 +24,7 @@ export class ScraperService {
 
     constructor() {
         this.allMangaScraper = new AllMangaScraper();
+        this.gogoAnimeScraper = new GogoAnimeScraper();
     }
 
     private isAnimePaheSession(session: string) {
@@ -523,7 +526,28 @@ export class ScraperService {
     async getStreams(animeSession: string, epSession: string, options?: StreamProviderOptions) {
         const provider = String(options?.provider || 'auto').trim().toLowerCase() || 'auto';
 
+        // ── GogoAnime provider ─────────────────────────────────────────────
+        if (provider === 'gogoanime' || GogoAnimeScraper.isGogoAnimeSession(animeSession)) {
+            const episodeNumber = Number(options?.episodeNumber || this.parseEpisodeNumber(epSession));
+            const knownSlug = GogoAnimeScraper.fromSession(animeSession) ?? undefined;
+            const titles = [
+                options?.title,
+                ...(Array.isArray(options?.titles) ? options.titles : []),
+                this.queryFromSessionSlug(animeSession),
+            ].filter((t): t is string => Boolean(t && t.trim()));
 
+            const key = `streams:gogoanime:v1:${knownSlug || titles[0]?.toLowerCase() || animeSession}:${episodeNumber}`;
+            const links = await this.getOrLoad(
+                key,
+                10 * 60 * 1000,
+                async () => this.gogoAnimeScraper.getStreams({ titles, episodeNumber, knownSlug }),
+                {
+                    shouldCache: (value) => Array.isArray(value) && value.length > 0,
+                    allowCached: (value) => Array.isArray(value) && value.length > 0,
+                }
+            );
+            return links;
+        }
 
         // ── AllManga provider ──────────────────────────────────────────────
         if (provider === 'allmanga' || provider === 'auto' || this.isAllMangaSession(animeSession)) {

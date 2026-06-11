@@ -20,6 +20,9 @@ const getSourceLabel = (stream: StreamLink) => {
     if (key === 'kwik') return 'Kwik';
     if (key === 'hls') return 'HLS';
     if (key === 'embed') return 'Embed';
+    if (key === 'gogoanime' || key.startsWith('gogoanime-')) return 'GogoAnime';
+    if (key === 'gogoanime-hd-1') return 'GogoAnime HD-1';
+    if (key === 'gogoanime-hd-2') return 'GogoAnime HD-2';
     return key
         .replace(/[-_]+/g, ' ')
         .replace(/\b\w/g, (match) => match.toUpperCase());
@@ -31,12 +34,12 @@ type StreamLookupMetadata = {
     format?: string;
 };
 
-export type StreamServerKey = 'auto' | 'allmanga' | 'reanime';
+export type StreamServerKey = 'auto' | 'allmanga' | 'gogoanime';
 
 export const STREAM_SERVER_OPTIONS: Array<{ key: StreamServerKey; label: string }> = [
     { key: 'auto', label: 'Default' },
     { key: 'allmanga', label: 'AllManga' },
-    { key: 'reanime', label: 'ReAnime' },
+    { key: 'gogoanime', label: 'GogoAnime' },
 ];
 
 

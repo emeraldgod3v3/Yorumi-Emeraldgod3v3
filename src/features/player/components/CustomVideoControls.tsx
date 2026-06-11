@@ -289,6 +289,23 @@ export default function CustomVideoControls({
         }
     };
 
+    const handleCast = async () => {
+        const video = videoRef.current as any;
+        if (!video) return;
+
+        try {
+            if (video.remote && video.remote.state !== 'disconnected') {
+                await video.remote.prompt();
+            } else if (video.webkitShowPlaybackTargetPicker) {
+                video.webkitShowPlaybackTargetPicker();
+            } else if (video.remote) {
+                await video.remote.prompt();
+            }
+        } catch (error) {
+            console.error('Failed to cast:', error);
+        }
+    };
+
     const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
         const time = Number(e.target.value);
         if (videoRef.current) {
@@ -791,7 +808,7 @@ export default function CustomVideoControls({
                                 <button onClick={() => { setShowSettings(!showSettings); setSettingsView('main'); }} className="rounded-full p-1.5 text-white transition-colors hover:bg-white/10 hover:text-white/80 sm:p-2">
                                     <Settings className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
                                 </button>
-                                <button className="rounded-full p-1.5 text-white transition-colors hover:bg-white/10 hover:text-white/80 sm:p-2">
+                                <button onClick={handleCast} className="rounded-full p-1.5 text-white transition-colors hover:bg-white/10 hover:text-white/80 sm:p-2">
                                     <Cast className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
                                 </button>
                                 <button

@@ -473,6 +473,7 @@ export default function VideoPlayer(props: VideoPlayerProps) {
                                     autoPlay
                                     preload="auto"
                                     crossOrigin="anonymous"
+                                    disableRemotePlayback={false}
                                     onCanPlay={() => onLoadRef.current?.()}
                                     onError={() => onErrorRef.current?.()}
                                     onTimeUpdate={(event) => {
