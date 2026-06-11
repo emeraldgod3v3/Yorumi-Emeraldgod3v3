@@ -28,7 +28,7 @@ type TmdbSearchResult = {
     popularity?: number;
 };
 
-type TmdbMediaType = 'tv' | 'movie';
+export type TmdbMediaType = 'tv' | 'movie';
 
 type TmdbWatchProvider = {
     provider_id: number;
@@ -60,6 +60,13 @@ export type WatchProviderResult = {
     country: string;
     link?: string;
     providers: WatchProviderOption[];
+};
+
+export type TmdbMediaTarget = {
+    tmdbId: number;
+    mediaType: TmdbMediaType;
+    title?: string;
+    year?: string;
 };
 
 const normalizeTitle = (value: unknown) =>
@@ -193,6 +200,46 @@ class TmdbService {
         cacheSet(cacheKey, resolved, 24 * 60 * 60).catch(() => undefined);
 
         return resolved || undefined;
+    }
+
+    async resolveMediaTarget(input: TmdbSearchInput): Promise<TmdbMediaTarget | null> {
+        const titles = [
+            ...(Array.isArray(input.titles) ? input.titles : []),
+            input.title,
+        ].map((title) => String(title || '').trim()).filter(Boolean);
+        const titleTokens = [...new Set(titles.map(normalizeTitle).filter(Boolean))];
+        if (titleTokens.length === 0 || !this.isConfigured()) return null;
+
+        const year = getYear(input.year);
+        const cacheKey = `tmdb:media-target:v1:${titleTokens.join('|')}:${year}:${String(input.format || '').toUpperCase()}`;
+        const now = Date.now();
+        const mem = this.memoryCache.get(cacheKey);
+        if (mem && mem.expiresAt > now) return (mem.value as TmdbMediaTarget | null) || null;
+
+        const redisCached = await cacheGet<TmdbMediaTarget | null>(cacheKey).catch(() => null);
+        if (redisCached !== null) {
+            this.memoryCache.set(cacheKey, { expiresAt: now + 24 * 60 * 60 * 1000, value: redisCached });
+            return redisCached || null;
+        }
+
+        const match = await this.findBestMatch(input);
+        if (!match?.candidate?.id) {
+            this.memoryCache.set(cacheKey, { expiresAt: now + 6 * 60 * 60 * 1000, value: null });
+            cacheSet(cacheKey, null, 6 * 60 * 60).catch(() => undefined);
+            return null;
+        }
+
+        const resolved: TmdbMediaTarget = {
+            tmdbId: match.candidate.id,
+            mediaType: match.mediaType,
+            title: match.candidate.name || match.candidate.title,
+            year: getYear(match.candidate.first_air_date || match.candidate.release_date) || undefined,
+        };
+
+        this.memoryCache.set(cacheKey, { expiresAt: now + 24 * 60 * 60 * 1000, value: resolved });
+        cacheSet(cacheKey, resolved, 24 * 60 * 60).catch(() => undefined);
+
+        return resolved;
     }
 
     async resolveWatchProviders(input: TmdbSearchInput & { country?: string }): Promise<WatchProviderResult | null> {

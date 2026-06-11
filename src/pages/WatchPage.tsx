@@ -65,14 +65,17 @@ export default function WatchPage() {
         epLoading,
         streamLoading,
         streamExhausted,
+        skipTimestampsLoading,
         isExpanded,
         isAutoQuality,
         autoNextEnabled,
+        autoSkipEnabled,
         selectedAudio,
         selectedServer,
         serverOptions,
         availableAudios,
         selectedStreamIndex,
+        skipTimestamps,
         reloadPlayer,
         toggleExpand,
         handlePrevEp,
@@ -81,6 +84,7 @@ export default function WatchPage() {
         handleQualityChange,
         setAutoQuality,
         setAutoNextEnabled,
+        setAutoSkipEnabled,
         setSelectedServer,
         setSelectedAudio,
         canPrevEpisode,
@@ -100,7 +104,7 @@ export default function WatchPage() {
             (!!routeSession && extractDirectScraperSession(animeRecord?.scraperId) === routeSession)
         )
     );
-    const isPageLoading = !anime || !animeMatch;
+    const isPageLoading = !anime || !animeMatch || (!episodesResolved && epLoading);
     const playerProps = useMemo(() => ({
         streamUrl: currentStream?.url,
         episodeSession: currentEpisode?.session ?? epNum,
@@ -108,6 +112,7 @@ export default function WatchPage() {
         subtitles: currentStream?.subtitles,
         isLoading: streamLoading,
         streamExhausted,
+        skipTimestampsLoading,
         hasPlayableSource: !currentEpisode || Boolean(currentStream?.url) || streamLoading,
         onLoad: () => setIsPlayerReady(true),
         onError: handleStreamError,
@@ -118,6 +123,9 @@ export default function WatchPage() {
         hasNextEpisode: canNextEpisode,
         autoNextEnabled,
         onAutoNextChange: setAutoNextEnabled,
+        autoSkipEnabled,
+        onAutoSkipChange: setAutoSkipEnabled,
+        skipTimestamps,
         selectedAudio,
         availableAudios,
         onAudioChange: setSelectedAudio,
@@ -134,6 +142,7 @@ export default function WatchPage() {
     }), [
         availableAudios,
         autoNextEnabled,
+        autoSkipEnabled,
         canNextEpisode,
         canPrevEpisode,
         currentEpisode,
@@ -153,9 +162,12 @@ export default function WatchPage() {
         selectedStreamIndex,
         setAutoQuality,
         setAutoNextEnabled,
+        setAutoSkipEnabled,
         setIsPlayerReady,
         setSelectedAudio,
         setSelectedServer,
+        skipTimestamps,
+        skipTimestampsLoading,
         streamExhausted,
         streamLoading,
         streams,
@@ -198,8 +210,21 @@ export default function WatchPage() {
 
                 <div className="flex-1 flex flex-col md:flex-row min-h-0 relative overflow-hidden gap-0 md:gap-8">
                     <div className="flex-1 min-w-0 relative flex flex-col overflow-hidden gap-0 md:gap-4">
-                        <div className="flex-1 flex items-center justify-center bg-black/40 md:rounded-2xl">
-                            <div className="w-40 h-24 bg-white/5 rounded-xl animate-pulse" />
+                        <div className="flex-1 flex flex-col overflow-hidden bg-black/40 md:rounded-2xl border border-white/5">
+                            <div className="flex-1 flex items-center justify-center relative">
+                                <div className="absolute inset-0 bg-white/[0.02] animate-pulse" />
+                                <div className="w-20 h-20 rounded-full bg-white/5 flex items-center justify-center animate-pulse z-10">
+                                    <div className="w-8 h-8 ml-2 border-y-[12px] border-y-transparent border-l-[18px] border-l-white/10" />
+                                </div>
+                            </div>
+                            <div className="h-16 bg-white/[0.02] border-t border-white/5 flex items-center px-4 gap-4 w-full">
+                                <div className="w-8 h-8 rounded bg-white/5 animate-pulse shrink-0" />
+                                <div className="w-8 h-8 rounded bg-white/5 animate-pulse shrink-0" />
+                                <div className="flex-1 h-1.5 rounded-full bg-white/5 animate-pulse mx-2" />
+                                <div className="w-16 h-4 rounded bg-white/5 animate-pulse shrink-0" />
+                                <div className="w-8 h-8 rounded bg-white/5 animate-pulse shrink-0" />
+                                <div className="w-8 h-8 rounded bg-white/5 animate-pulse shrink-0" />
+                            </div>
                         </div>
                     </div>
 

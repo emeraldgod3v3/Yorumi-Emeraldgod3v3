@@ -14,4 +14,13 @@ export interface StreamLink {
     referer?: string;
     isHls: boolean;
     subtitles?: SubtitleTrack[];
+    thumbnails?: ThumbnailInfo;
+}
+
+export interface ThumbnailInfo {
+    spriteUrl?: string;
+    spriteGrid?: { columns: number; rows: number };
+    thumbnailUrl?: string;
+    interval?: number;
+    vttUrl?: string;
 }

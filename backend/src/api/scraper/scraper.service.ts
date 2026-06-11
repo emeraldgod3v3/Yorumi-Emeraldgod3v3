@@ -1,9 +1,20 @@
 import { AllMangaScraper } from '../../scraper/allmanga';
 
+
 import { acquireLock, cacheGet, cacheSet, releaseLock } from '../../utils/redis-cache';
+
+type StreamProviderOptions = {
+    provider?: string;
+    title?: string;
+    titles?: string[];
+    year?: string | number;
+    format?: string;
+    episodeNumber?: number;
+};
 
 export class ScraperService {
     private allMangaScraper: AllMangaScraper;
+
 
     private cache = new Map<string, { expiresAt: number; value: any }>();
     private inFlight = new Map<string, Promise<any>>();
@@ -11,7 +22,6 @@ export class ScraperService {
 
     constructor() {
         this.allMangaScraper = new AllMangaScraper();
-
     }
 
     private isAnimePaheSession(session: string) {
@@ -26,6 +36,8 @@ export class ScraperService {
     private isAllMangaSession(session: string) {
         return AllMangaScraper.isAllMangaSession(session);
     }
+
+
 
     private normalizeTitle(value: unknown) {
         return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -508,26 +520,30 @@ export class ScraperService {
         );
     }
 
-    async getStreams(animeSession: string, epSession: string, options?: { provider?: string; title?: string; episodeNumber?: number }) {
+    async getStreams(animeSession: string, epSession: string, options?: StreamProviderOptions) {
         const provider = String(options?.provider || 'auto').trim().toLowerCase() || 'auto';
 
 
-        if (provider === 'allmanga' || this.isAllMangaSession(animeSession)) {
+
+        // ── AllManga provider ──────────────────────────────────────────────
+        if (provider === 'allmanga' || provider === 'auto' || this.isAllMangaSession(animeSession)) {
             const title = String(options?.title || this.queryFromSessionSlug(animeSession)).trim();
             const episodeNumber = Number(options?.episodeNumber || this.parseEpisodeNumber(epSession));
             const showId = AllMangaScraper.fromSession(animeSession);
             const key = `streams:allmanga:v2:${showId || title.toLowerCase()}:${episodeNumber || epSession}`;
-            return this.getOrLoad(
+            const links = await this.getOrLoad(
                 key,
                 5 * 60 * 1000,
                 async () => showId
-                    ? this.allMangaScraper.getLinksForShowId(showId, episodeNumber)
+                    ? this.allMangaScraper.getLinksForShowId(showId, episodeNumber, title)
                     : this.allMangaScraper.getLinksForEpisodeNumber(title, episodeNumber),
                 {
                     shouldCache: (value) => Array.isArray(value) && value.length > 0,
                     allowCached: (value) => Array.isArray(value) && value.length > 0,
                 }
             );
+
+            return links;
         }
 
         return [];

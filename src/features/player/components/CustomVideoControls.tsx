@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Settings, Cast, Maximize, Minimize, Mic, Gauge, Video, Monitor, ChevronLeft, CheckCircle2, Circle, X, RotateCcw, RotateCw } from 'lucide-react';
+import RedoIcon from '@mui/icons-material/Redo';
 import type { StreamServerKey } from '../../../hooks/useStreams';
 import type { StreamLink } from '../../../types/stream';
+import type { SkipTimestamp } from '../../../services/skipTimestamps';
 import { getMappedQuality } from '../../../utils/streamUtils';
 
 interface CustomVideoControlsProps {
@@ -11,6 +13,10 @@ interface CustomVideoControlsProps {
     hasNextEpisode?: boolean;
     autoNextEnabled?: boolean;
     onAutoNextChange?: (enabled: boolean) => void;
+    autoSkipEnabled?: boolean;
+    onAutoSkipChange?: (enabled: boolean) => void;
+    skipTimestamps?: SkipTimestamp[];
+    skipTimestampsLoading?: boolean;
     selectedAudio: 'sub' | 'dub';
     availableAudios: Array<'sub' | 'dub'>;
     onAudioChange: (audio: 'sub' | 'dub') => void;
@@ -53,6 +59,10 @@ export default function CustomVideoControls({
     hasNextEpisode = false,
     autoNextEnabled = true,
     onAutoNextChange,
+    autoSkipEnabled = true,
+    onAutoSkipChange,
+    skipTimestamps = [],
+    skipTimestampsLoading = false,
     selectedAudio,
     availableAudios,
     onAudioChange,
@@ -90,6 +100,51 @@ export default function CustomVideoControls({
     const hasDub = availableAudios.includes('dub');
     const adjacentHandler = hasNextEpisode ? onNextEpisode : onPrevEpisode;
     const AdjacentIcon = hasNextEpisode ? SkipForward : SkipBack;
+    
+    const introSkip = skipTimestamps.find(ts => ts.skipType === 'intro');
+    const outroSkip = skipTimestamps.find(ts => ts.skipType === 'outro');
+
+    const [hoverProgress, setHoverProgress] = useState<{ x: number; time: number } | null>(null);
+    const [hoverSprite, setHoverSprite] = useState<{ url: string; col: number; row: number; spriteGrid: { columns: number; rows: number }; interval: number } | null>(null);
+    const [hoverThumbnailUrl, setHoverThumbnailUrl] = useState<string | null>(null);
+
+    const getHoverThumbnail = useCallback((time: number) => {
+        const thumbnails = currentStream?.thumbnails;
+        if (!thumbnails) return { sprite: null, url: null };
+
+        if (thumbnails.spriteUrl && thumbnails.spriteGrid) {
+            const interval = thumbnails.interval || 10;
+            const frameIndex = Math.floor(time / interval);
+            const col = frameIndex % thumbnails.spriteGrid.columns;
+            const row = Math.floor(frameIndex / thumbnails.spriteGrid.columns);
+            if (row < thumbnails.spriteGrid.rows) {
+                return {
+                    sprite: { url: thumbnails.spriteUrl, col, row, spriteGrid: thumbnails.spriteGrid, interval },
+                    url: null
+                };
+            }
+        }
+
+
+
+        return { sprite: null, url: null };
+    }, [currentStream?.thumbnails]);
+
+    const handleProgressHover = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const time = x * duration;
+        setHoverProgress({ x, time });
+        const { sprite, url } = getHoverThumbnail(time);
+        setHoverSprite(sprite);
+        setHoverThumbnailUrl(url);
+    }, [duration, getHoverThumbnail]);
+
+    const handleProgressLeave = useCallback(() => {
+        setHoverProgress(null);
+        setHoverSprite(null);
+        setHoverThumbnailUrl(null);
+    }, []);
 
     const formatTime = (timeInSeconds: number) => {
         if (isNaN(timeInSeconds)) return '0:00';
@@ -102,6 +157,18 @@ export default function CustomVideoControls({
         }
         return `${minutes}:${seconds.toString().padStart(2, '0')}`;
     };
+
+    const getSkipRangeStyle = useCallback((skip: SkipTimestamp) => {
+        if (!duration || !Number.isFinite(duration)) return null;
+
+        const startPercent = Math.max(0, Math.min(100, (skip.start / duration) * 100));
+        const endPercent = Math.max(startPercent, Math.min(100, (skip.end / duration) * 100));
+
+        return {
+            left: `${startPercent}%`,
+            width: `${Math.max(0.5, endPercent - startPercent)}%`,
+        };
+    }, [duration]);
 
     const handleMouseMove = useCallback(() => {
         setShowControls(true);
@@ -358,7 +425,19 @@ export default function CustomVideoControls({
                     </div>
 
                     <div className="absolute inset-x-0 bottom-0 flex flex-col gap-2 p-2 bg-gradient-to-t from-black/70 via-black/40 to-transparent">
-                        <div className="relative h-1 w-full cursor-pointer rounded-full bg-white/25">
+                        <div className="relative h-1 w-full cursor-pointer overflow-hidden rounded-full bg-white/25">
+                            {introSkip && (
+                                <div
+                                    className="absolute top-0 h-full rounded-full bg-emerald-400/30"
+                                    style={getSkipRangeStyle(introSkip) || undefined}
+                                />
+                            )}
+                            {outroSkip && (
+                                <div
+                                    className="absolute top-0 h-full rounded-full bg-amber-400/30"
+                                    style={getSkipRangeStyle(outroSkip) || undefined}
+                                />
+                            )}
                             <div
                                 className="absolute left-0 top-0 h-full rounded-full bg-white"
                                 style={{ width: `${progressPercentage}%` }}
@@ -369,7 +448,7 @@ export default function CustomVideoControls({
                                 max={duration || 100}
                                 value={currentTime}
                                 onChange={handleSeek}
-                                className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+                                className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 outline-none focus:outline-none focus:ring-0"
                             />
                         </div>
 
@@ -423,7 +502,23 @@ export default function CustomVideoControls({
             >
                 <div className="mx-auto max-w-5xl flex flex-col gap-3 sm:gap-4 pointer-events-auto">
                     {/* Scrubber / Progress Bar */}
-                    <div className="relative h-1 w-full bg-white/20 cursor-pointer group rounded-full">
+                    <div 
+                        className="relative h-1 w-full bg-white/20 cursor-pointer group overflow-hidden rounded-full"
+                        onMouseMove={handleProgressHover}
+                        onMouseLeave={handleProgressLeave}
+                    >
+                        {introSkip && (
+                            <div
+                                className="absolute top-0 h-full rounded-full bg-emerald-400/30"
+                                style={getSkipRangeStyle(introSkip) || undefined}
+                            />
+                        )}
+                        {outroSkip && (
+                            <div
+                                className="absolute top-0 h-full rounded-full bg-amber-400/30"
+                                style={getSkipRangeStyle(outroSkip) || undefined}
+                            />
+                        )}
                         <div 
                             className="absolute top-0 left-0 h-full bg-white rounded-full transition-all duration-150 ease-out"
                             style={{ width: `${progressPercentage}%` }}
@@ -434,13 +529,44 @@ export default function CustomVideoControls({
                             max={duration || 100}
                             value={currentTime}
                             onChange={handleSeek}
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                            className="absolute inset-0 w-full h-full cursor-pointer opacity-0 outline-none focus:outline-none focus:ring-0 z-10"
                         />
                         {/* Hover thumb */}
                         <div 
                             className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow"
                             style={{ left: `calc(${progressPercentage}% - 6px)` }}
                         />
+                        {/* Hover Preview Thumbnail */}
+                        {hoverProgress && (hoverSprite || hoverThumbnailUrl) && (
+                            <div 
+                                className="absolute bottom-full left-0 mb-2 transform -translate-x-1/2 transition-all duration-150 pointer-events-none z-20"
+                                style={{ left: `${hoverProgress.x * 100}%` }}
+                            >
+                                <div className="relative bg-black/90 rounded-lg overflow-hidden shadow-2xl border border-white/10">
+                                    {hoverSprite ? (
+                                        <div 
+                                            className="w-48 h-27"
+                                            style={{
+                                                backgroundImage: `url(${hoverSprite.url})`,
+                                                backgroundSize: `${hoverSprite.spriteGrid.columns * 100}% ${hoverSprite.spriteGrid.rows * 100}%`,
+                                                backgroundPosition: `${hoverSprite.col / (hoverSprite.spriteGrid.columns - 1) * 100}% ${hoverSprite.row / (hoverSprite.spriteGrid.rows - 1) * 100}%`,
+                                            }}
+                                        />
+                                    ) : hoverThumbnailUrl && (
+                                        <img 
+                                            src={hoverThumbnailUrl} 
+                                            alt={`Preview at ${formatTime(hoverProgress.time)}`}
+                                            className="w-48 h-27 object-cover"
+                                            loading="lazy"
+                                        />
+                                    )}
+                                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent px-2 py-1 text-xs text-white/80">
+                                        {formatTime(hoverProgress.time)}
+                                    </div>
+                                </div>
+                                <div className="w-2 h-2 bg-black/90 rotate-45 mx-auto -mt-1 border-r border-b border-white/10" />
+                            </div>
+                        )}
                     </div>
 
                     {/* Controls */}
@@ -553,6 +679,25 @@ export default function CustomVideoControls({
                                                         <div className={`absolute top-1 w-3 h-3 rounded-full transition-all ${autoNextEnabled && hasNextEpisode ? 'bg-black left-5' : 'bg-white left-1'}`}></div>
                                                     </div>
                                                 </button>
+                                                <button
+                                                    onClick={() => onAutoSkipChange?.(!autoSkipEnabled)}
+                                                    disabled={!onAutoSkipChange}
+                                                    className="flex items-center justify-between w-full p-3 hover:bg-white/10 rounded-xl transition-colors disabled:opacity-40"
+                                                >
+                                                    <div className="flex items-center gap-3 text-white">
+                                                        <RedoIcon className="w-5 h-5" />
+                                                        <span className="text-sm font-medium">Auto Skip</span>
+                                                    </div>
+                                                    <div className={`w-9 h-5 rounded-full relative shadow-inner transition-colors ${autoSkipEnabled ? 'bg-white' : 'bg-white/20'}`}>
+                                                        <div className={`absolute top-1 w-3 h-3 rounded-full transition-all ${autoSkipEnabled ? 'bg-black left-5' : 'bg-white left-1'}`}></div>
+                                                    </div>
+                                                </button>
+
+                                                {skipTimestampsLoading && (
+                                                    <div className="px-3 py-2 text-xs text-white/60 flex items-center gap-2">
+                                                        <span className="animate-pulse">Loading skip times...</span>
+                                                    </div>
+                                                )}
                                                 <button
                                                     onClick={() => setSettingsView('speed')}
                                                     className="flex items-center justify-between w-full p-3 hover:bg-white/10 rounded-xl transition-colors"

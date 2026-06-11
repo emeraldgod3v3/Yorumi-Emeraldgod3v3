@@ -4,8 +4,10 @@ import { useAnime } from '../../../hooks/useAnime';
 import { useStreams } from '../../../hooks/useStreams';
 import type { Anime, Episode } from '../../../types/anime';
 import { storage } from '../../../utils/storage';
+import { fetchSkipTimestamps, type SkipTimestamp } from '../../../services/skipTimestamps';
 
 const AUTO_NEXT_STORAGE_KEY = 'yorumi:auto-next-enabled';
+const AUTO_SKIP_STORAGE_KEY = 'yorumi:auto-skip-enabled';
 
 export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) {
     const navigate = useNavigate();
@@ -27,7 +29,20 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
     } = animeHook;
 
     // 2. Stream Data
-    const streamsHook = useStreams(scraperSession, selectedAnime?.title || animeSlugTitle);
+    const streamTitleCandidates = [
+        selectedAnime?.title,
+        selectedAnime?.title_english,
+        selectedAnime?.title_romaji,
+        selectedAnime?.title_japanese,
+        animeSlugTitle,
+        ...(Array.isArray(selectedAnime?.synonyms) ? selectedAnime.synonyms : []),
+    ].map((value) => String(value || '').trim()).filter(Boolean);
+    const streamMetadata = {
+        titlesKey: [...new Set(streamTitleCandidates)].join('|'),
+        year: selectedAnime?.year,
+        format: selectedAnime?.type,
+    };
+    const streamsHook = useStreams(scraperSession, selectedAnime?.title || animeSlugTitle, streamMetadata);
     const {
         currentStream,
         streamLoading,
@@ -59,6 +74,7 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
     const [episodesResolved, setEpisodesResolved] = useState(false);
     const [streamExhausted, setStreamExhausted] = useState(false);
     const [startAtOverrideSeconds, setStartAtOverrideSeconds] = useState<number | null>(null);
+    const [episodeDurationSeconds, setEpisodeDurationSeconds] = useState<number | null>(null);
     const [autoNextEnabled, setAutoNextEnabledState] = useState(() => {
         try {
             return localStorage.getItem(AUTO_NEXT_STORAGE_KEY) !== 'false';
@@ -66,6 +82,15 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
             return true;
         }
     });
+    const [autoSkipEnabled, setAutoSkipEnabledState] = useState(() => {
+        try {
+            return localStorage.getItem(AUTO_SKIP_STORAGE_KEY) !== 'false';
+        } catch {
+            return true;
+        }
+    });
+    const [skipTimestamps, setSkipTimestamps] = useState<SkipTimestamp[]>([]);
+    const [skipTimestampsLoading, setSkipTimestampsLoading] = useState(false);
     const epNumParam = searchParams.get('ep') || '1';
     const resumeAtSeconds = (() => {
         const raw = searchParams.get('t');
@@ -84,6 +109,7 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
     const autoLoadAttemptKeyRef = useRef<string>('');
     const streamRetryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const streamRetryStateRef = useRef<{ key: string; attempts: number }>({ key: '', attempts: 0 });
+    const streamFailureStateRef = useRef<{ key: string; attempts: number }>({ key: '', attempts: 0 });
     const STREAM_RETRY_DELAYS_MS = [1000, 2000, 3500, 5500, 8000];
     const extractDirectScraperSession = (value: unknown): string => {
         const raw = String(value || '').trim();
@@ -104,6 +130,32 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
         if (Number.isFinite(direct)) return direct;
         const match = raw.match(/(\d+(?:\.\d+)?)/);
         return match ? Number(match[1]) : NaN;
+    };
+    const parseEpisodeDurationSeconds = (value: string | undefined): number | null => {
+        const raw = String(value || '').trim();
+        if (!raw) return null;
+
+        const hoursMatch = raw.match(/(\d+(?:\.\d+)?)\s*h(?:ours?)?/i);
+        const minutesMatch = raw.match(/(\d+(?:\.\d+)?)\s*m(?:in(?:ute)?s?)?/i);
+        const secondsMatch = raw.match(/(\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?/i);
+
+        if (!hoursMatch && !minutesMatch && !secondsMatch) {
+            const direct = raw.match(/(\d+):(\d{2})(?::(\d{2}))?/);
+            if (direct) {
+                const hours = direct[3] ? Number(direct[1]) : 0;
+                const minutes = direct[3] ? Number(direct[2]) : Number(direct[1]);
+                const seconds = Number(direct[3] || direct[2]);
+                const total = (hours * 3600) + (minutes * 60) + seconds;
+                return Number.isFinite(total) && total > 0 ? total : null;
+            }
+            return null;
+        }
+
+        const hours = hoursMatch ? Number(hoursMatch[1]) : 0;
+        const minutes = minutesMatch ? Number(minutesMatch[1]) : 0;
+        const seconds = secondsMatch ? Number(secondsMatch[1]) : 0;
+        const total = (hours * 3600) + (minutes * 60) + seconds;
+        return Number.isFinite(total) && total > 0 ? total : null;
     };
     const decodeSlugTitle = (slug?: string) =>
         String(slug || '')
@@ -132,6 +184,15 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
         }
     }, []);
 
+    const setAutoSkipEnabled = useCallback((enabled: boolean) => {
+        setAutoSkipEnabledState(enabled);
+        try {
+            localStorage.setItem(AUTO_SKIP_STORAGE_KEY, enabled ? 'true' : 'false');
+        } catch {
+            // Ignore storage errors; the in-memory setting still applies for this session.
+        }
+    }, []);
+
     // --- Effects ---
 
     // Clear streams on mount/id change
@@ -148,6 +209,7 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
         lastSavedProgressRef.current = { at: 0, second: -1 };
         streamFetchRetryKeyRef.current = '';
         autoLoadAttemptKeyRef.current = '';
+        streamFailureStateRef.current = { key: '', attempts: 0 };
         resetScheduledStreamRetry();
     }, [animeId, clearStreams, resetScheduledStreamRetry]);
 
@@ -156,6 +218,10 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
         autoLoadAttemptKeyRef.current = '';
         resetScheduledStreamRetry();
     }, [scraperSession, resetScheduledStreamRetry]);
+
+    useEffect(() => {
+        setEpisodeDurationSeconds(parseEpisodeDurationSeconds(currentEpisode?.duration));
+    }, [currentEpisode?.session, currentEpisode?.duration]);
 
     useEffect(() => {
         const currentId = String(animeId || '');
@@ -283,6 +349,49 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
         lastDurationSecondRef.current = 0;
     }, [selectedAnime, currentEpisode, saveProgress, startAtOverrideSeconds, resumeAtSeconds]);
 
+    // Fetch skip timestamps when episode changes
+    useEffect(() => {
+        if (!selectedAnime || !currentEpisode) {
+            setSkipTimestamps([]);
+            return;
+        }
+        const episodeNumber = parseEpisodeNumber(currentEpisode.episodeNumber);
+        if (!Number.isFinite(episodeNumber) || episodeNumber <= 0) {
+            setSkipTimestamps([]);
+            return;
+        }
+        const malId = selectedAnime.mal_id || selectedAnime.id;
+        const title = selectedAnime.title || animeSlugTitle || '';
+        const durationSeconds = episodeDurationSeconds ?? parseEpisodeDurationSeconds(currentEpisode.duration);
+
+        setSkipTimestampsLoading(true);
+        fetchSkipTimestamps(
+            malId && Number.isFinite(malId) ? Number(malId) : null,
+            title,
+            episodeNumber,
+            durationSeconds
+        )
+            .then((timestamps) => {
+                setSkipTimestamps(timestamps);
+            })
+            .catch((error) => {
+                console.warn('Failed to fetch skip timestamps:', error);
+                setSkipTimestamps([]);
+            })
+            .finally(() => {
+                setSkipTimestampsLoading(false);
+            });
+    }, [
+        selectedAnime?.mal_id,
+        selectedAnime?.id,
+        selectedAnime?.title,
+        animeSlugTitle,
+        currentEpisode?.episodeNumber,
+        currentEpisode?.session,
+        currentEpisode?.duration,
+        episodeDurationSeconds,
+    ]);
+
     // NOTE: Adjacent-episode prefetching has been intentionally disabled to prevent
     // excessive Vercel serverless CPU usage. Each prefetch call spins up a Puppeteer
     // browser instance on the backend, which causes rapid CPU spikes on every episode load.
@@ -308,6 +417,10 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
         }
 
         const attempt = streamRetryStateRef.current.attempts;
+        if (attempt >= STREAM_RETRY_DELAYS_MS.length) {
+            setStreamExhausted(true);
+            return;
+        }
         const delay = STREAM_RETRY_DELAYS_MS[Math.min(attempt, STREAM_RETRY_DELAYS_MS.length - 1)];
         setStreamExhausted(attempt >= STREAM_RETRY_DELAYS_MS.length - 1);
 
@@ -420,6 +533,14 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
         const durationSeconds = Number.isFinite(progress.duration) ? Math.max(0, Math.floor(progress.duration)) : 0;
         lastDurationSecondRef.current = durationSeconds;
         lastPlaybackSecondRef.current = currentSecond;
+        if (durationSeconds > 0) {
+            setEpisodeDurationSeconds((current) => {
+                if (!current || Math.abs(current - durationSeconds) >= 2) {
+                    return durationSeconds;
+                }
+                return current;
+            });
+        }
 
         const now = Date.now();
         const shouldSave = progress.ended || (
@@ -446,11 +567,23 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
         if (second > 0) setStartAtOverrideSeconds(second);
         const switchedSource = tryNextStream();
         if (!switchedSource && currentEpisode) {
+            const failureKey = `${String(scraperSession || '')}:${String(currentEpisode.session || currentEpisode.episodeNumber || '')}`;
+            if (streamFailureStateRef.current.key !== failureKey) {
+                streamFailureStateRef.current = { key: failureKey, attempts: 0 };
+            }
+            if (streamFailureStateRef.current.attempts >= 2) {
+                setStreamExhausted(true);
+                return;
+            }
+            streamFailureStateRef.current = {
+                key: failureKey,
+                attempts: streamFailureStateRef.current.attempts + 1,
+            };
             resetScheduledStreamRetry();
             bustEpisodeCache(currentEpisode.session);
             loadStream(currentEpisode);
         }
-    }, [currentEpisode, currentStream?.url, tryNextStream, resetScheduledStreamRetry, bustEpisodeCache, loadStream]);
+    }, [currentEpisode, currentStream?.url, scraperSession, tryNextStream, resetScheduledStreamRetry, bustEpisodeCache, loadStream]);
 
     // --- Actions ---
 
@@ -560,17 +693,20 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
         streamLoading,
         isPlayerReady,
         streamExhausted,
+        skipTimestampsLoading,
 
         // UI State
         isExpanded,
         isAutoQuality,
         autoNextEnabled,
+        autoSkipEnabled,
         selectedAudio,
         selectedServer,
         serverOptions,
         availableAudios,
         showQualityMenu,
         selectedStreamIndex,
+        skipTimestamps,
         canPrevEpisode: Boolean(prevEpisode),
         canNextEpisode: Boolean(nextEpisode),
 
@@ -585,6 +721,7 @@ export function usePlayer(animeId: string | undefined, animeSlugTitle?: string) 
         handleQualityChange,
         setAutoQuality,
         setAutoNextEnabled,
+        setAutoSkipEnabled,
         setSelectedServer,
         setSelectedAudio,
         handlePlaybackProgress,

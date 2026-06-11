@@ -6,6 +6,7 @@ import type { StreamLink, SubtitleTrack } from '../../../types/stream';
 import { API_BASE } from '../../../config/api';
 import CustomVideoControls from './CustomVideoControls';
 import type { StreamServerKey } from '../../../hooks/useStreams';
+import { shouldSkipIntro, shouldSkipOutro, type SkipTimestamp } from '../../../services/skipTimestamps';
 
 const IFRAME_LOAD_TIMEOUT_MS = 18_000;
 const NATIVE_LOAD_TIMEOUT_MS = 20_000;
@@ -20,6 +21,7 @@ export interface VideoPlayerProps {
     isLoading: boolean;
     hasPlayableSource?: boolean;
     streamExhausted?: boolean;
+    skipTimestampsLoading?: boolean;
     onLoad?: () => void;
     onError?: () => void;
     onProgress?: (progress: { currentTime: number; duration: number; ended?: boolean }) => void;
@@ -29,6 +31,9 @@ export interface VideoPlayerProps {
     hasNextEpisode?: boolean;
     autoNextEnabled?: boolean;
     onAutoNextChange?: (enabled: boolean) => void;
+    autoSkipEnabled?: boolean;
+    onAutoSkipChange?: (enabled: boolean) => void;
+    skipTimestamps?: SkipTimestamp[];
     selectedAudio: 'sub' | 'dub';
     availableAudios: Array<'sub' | 'dub'>;
     onAudioChange: (audio: 'sub' | 'dub') => void;
@@ -55,6 +60,7 @@ export default function VideoPlayer(props: VideoPlayerProps) {
         isLoading,
         hasPlayableSource = true,
         streamExhausted = false,
+        skipTimestampsLoading = false,
         onLoad,
         onError,
         onProgress,
@@ -65,6 +71,9 @@ export default function VideoPlayer(props: VideoPlayerProps) {
         hasNextEpisode,
         autoNextEnabled = true,
         onAutoNextChange,
+        autoSkipEnabled = true,
+        onAutoSkipChange,
+        skipTimestamps = [],
         selectedAudio,
         availableAudios,
         onAudioChange,
@@ -94,6 +103,7 @@ export default function VideoPlayer(props: VideoPlayerProps) {
     const iframeLoadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const nativeLoadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const mediaStallTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const autoSkipPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const autoNextTriggerKeyRef = useRef('');
     const apiOrigin = API_BASE.replace(/\/+$/, '').replace(/\/api$/i, '');
 
@@ -140,6 +150,13 @@ export default function VideoPlayer(props: VideoPlayerProps) {
         if (mediaStallTimeoutRef.current) {
             clearTimeout(mediaStallTimeoutRef.current);
             mediaStallTimeoutRef.current = null;
+        }
+    }, []);
+
+    const clearAutoSkipPoll = useCallback(() => {
+        if (autoSkipPollRef.current) {
+            clearInterval(autoSkipPollRef.current);
+            autoSkipPollRef.current = null;
         }
     }, []);
 
@@ -371,6 +388,70 @@ export default function VideoPlayer(props: VideoPlayerProps) {
         }, 650);
     }, [autoNextEnabled, episodeSession, hasNextEpisode, onNextEpisode, resolvedStreamUrl]);
 
+    const runAutoSkipCheck = useCallback((video: HTMLVideoElement) => {
+        if (!autoSkipEnabled || skipTimestamps.length === 0) return;
+        if (video.paused || video.ended) return;
+
+        const currentTime = Number.isFinite(video.currentTime) ? video.currentTime : 0;
+        const duration = Number.isFinite(video.duration) ? video.duration : 0;
+        const skipBuffer = 0.1;
+
+        const introTarget = shouldSkipIntro(currentTime, skipTimestamps);
+        if (introTarget !== null) {
+            const nextTime = Math.min(duration || introTarget, introTarget + skipBuffer);
+            if (Number.isFinite(nextTime) && nextTime > currentTime + 0.01) {
+                video.currentTime = nextTime;
+            }
+            return;
+        }
+
+        const outroTarget = shouldSkipOutro(currentTime, skipTimestamps, duration);
+        if (outroTarget !== null) {
+            const nextTime = Math.min(duration || outroTarget, outroTarget + skipBuffer);
+            if (Number.isFinite(nextTime) && nextTime > currentTime + 0.01) {
+                video.currentTime = nextTime;
+            }
+        }
+    }, [autoSkipEnabled, skipTimestamps]);
+
+    useEffect(() => {
+        clearAutoSkipPoll();
+        const video = videoRef.current;
+        if (!video || !shouldUseNativeVideo || !resolvedStreamUrl) return;
+
+        const startAutoSkipPoll = () => {
+            runAutoSkipCheck(video);
+            if (autoSkipEnabled && skipTimestamps.length > 0 && !video.paused && !video.ended && !autoSkipPollRef.current) {
+                autoSkipPollRef.current = setInterval(() => {
+                    runAutoSkipCheck(video);
+                }, 250);
+            }
+        };
+
+        const stopAutoSkipPoll = () => {
+            clearAutoSkipPoll();
+        };
+
+        video.addEventListener('loadedmetadata', startAutoSkipPoll);
+        video.addEventListener('playing', startAutoSkipPoll);
+        video.addEventListener('seeked', startAutoSkipPoll);
+        video.addEventListener('timeupdate', startAutoSkipPoll);
+        video.addEventListener('pause', stopAutoSkipPoll);
+        video.addEventListener('ended', stopAutoSkipPoll);
+
+        startAutoSkipPoll();
+
+        return () => {
+            video.removeEventListener('loadedmetadata', startAutoSkipPoll);
+            video.removeEventListener('playing', startAutoSkipPoll);
+            video.removeEventListener('seeked', startAutoSkipPoll);
+            video.removeEventListener('timeupdate', startAutoSkipPoll);
+            video.removeEventListener('pause', stopAutoSkipPoll);
+            video.removeEventListener('ended', stopAutoSkipPoll);
+            clearAutoSkipPoll();
+        };
+    }, [autoSkipEnabled, clearAutoSkipPoll, resolvedStreamUrl, runAutoSkipCheck, shouldUseNativeVideo, skipTimestamps.length, videoRef]);
+
     return (
         <div className={`watch-player-shell w-full max-w-full h-full max-h-full relative bg-[#0b0c0f] group transition-all duration-300 overflow-hidden rounded-none shadow-none outline-none ${displayMode === 'mini' ? 'rounded-xl shadow-2xl shadow-black/70' : 'md:rounded-2xl md:shadow-2xl md:shadow-black/80'}`}>
             {resolvedStreamUrl ? (
@@ -401,6 +482,7 @@ export default function VideoPlayer(props: VideoPlayerProps) {
                                             duration: video.duration,
                                             ended: video.ended,
                                         });
+                                        runAutoSkipCheck(video);
                                     }}
                                     onEnded={handleNativeEnded}
                                 />
@@ -412,6 +494,10 @@ export default function VideoPlayer(props: VideoPlayerProps) {
                                     hasNextEpisode={hasNextEpisode}
                                     autoNextEnabled={autoNextEnabled}
                                     onAutoNextChange={onAutoNextChange}
+                                    autoSkipEnabled={autoSkipEnabled}
+                                    onAutoSkipChange={onAutoSkipChange}
+                                    skipTimestamps={skipTimestamps}
+                                    skipTimestampsLoading={skipTimestampsLoading}
                                     selectedAudio={selectedAudio}
                                     availableAudios={availableAudios}
                                     onAudioChange={onAudioChange}

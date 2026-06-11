@@ -1,6 +1,6 @@
 import axios from 'axios';
 import crypto from 'crypto';
-import type { AnimeSearchResult, Episode, StreamLink } from './types';
+import type { AnimeSearchResult, Episode, StreamLink, ThumbnailInfo } from './types';
 
 const API_URL = 'https://api.allanime.day/api';
 const ALLMANGA_REFERER = 'https://allmanga.to';
@@ -386,7 +386,7 @@ export class AllMangaScraper {
         if (!raw) return '';
         if (/^https?:\/\//i.test(raw)) return raw;
         if (raw.startsWith('//')) return `https:${raw}`;
-        return `https://allanime.day/${raw.replace(/^\/+/, '')}`;
+        return `https://wp.youtube-anime.com/aln.youtube-anime.com/${raw.replace(/^\/+/, '')}`;
     }
 
     private formatDuration(seconds: unknown) {
@@ -444,11 +444,6 @@ export class AllMangaScraper {
 
         const thumbnail = (Array.isArray(info.thumbnails) ? info.thumbnails : [])
             .map((url) => this.absoluteAssetUrl(url))
-            .sort((a, b) => {
-                const aLooksDead = /\/data2?\/ep_tbs\//i.test(a) ? 1 : 0;
-                const bLooksDead = /\/data2?\/ep_tbs\//i.test(b) ? 1 : 0;
-                return aLooksDead - bLooksDead;
-            })
             .find(Boolean);
         const duration = this.formatDuration(info.vidInforssub?.vidDuration || info.vidInforsdub?.vidDuration);
 
@@ -459,7 +454,7 @@ export class AllMangaScraper {
             url: `/watch/${AllMangaScraper.toSession(showId)}?ep=${episodeNumber}`,
             title: info.notes || undefined,
             duration,
-            snapshot: preferredSnapshot || thumbnail || fallbackSnapshot,
+            snapshot: preferredSnapshot || thumbnail,
             isSubbed: Boolean(info.vidInforssub),
             isDubbed: Boolean(info.vidInforsdub),
         };
@@ -522,6 +517,69 @@ export class AllMangaScraper {
         return `https://allanime.day/${path}`;
     }
 
+    private extractThumbnails(url: string): ThumbnailInfo | undefined {
+        const hostname = new URL(url).hostname.toLowerCase();
+        
+        // Vidsrc / Vidembed / Megacloud / etc.
+        if (hostname.includes('vidsrc') || hostname.includes('vidembed') || hostname.includes('megacloud')) {
+            const match = url.match(/\/embed\/([^/?]+)/);
+            if (match) {
+                const id = match[1];
+                return {
+                    spriteUrl: `https://${hostname}/sprite/${id}.webp`,
+                    spriteGrid: { columns: 10, rows: 10 },
+                    interval: 10,
+                };
+            }
+        }
+        
+        // Kwik
+        if (hostname.includes('kwik')) {
+            const match = url.match(/\/([a-zA-Z0-9]+)(?:\/|$)/);
+            if (match) {
+                const id = match[1];
+                return {
+                    thumbnailUrl: `https://${hostname}/${id}/thumbnail.jpg`,
+                };
+            }
+        }
+        
+        // Streamsb / Streamtape / etc.
+        if (hostname.includes('streamsb') || hostname.includes('streamtape')) {
+            const match = url.match(/\/([a-zA-Z0-9]+)(?:\/|$)/);
+            if (match) {
+                const id = match[1];
+                return {
+                    thumbnailUrl: `https://${hostname}/thumbnail/${id}.jpg`,
+                };
+            }
+        }
+        
+        // Ok.ru
+        if (hostname.includes('ok.ru')) {
+            const match = url.match(/videoembed\/([0-9]+)/);
+            if (match) {
+                const id = match[1];
+                return {
+                    thumbnailUrl: `https://ok.ru/videoembed/${id}`,
+                };
+            }
+        }
+        
+        // Mp4upload
+        if (hostname.includes('mp4upload')) {
+            const match = url.match(/\/([a-zA-Z0-9]+)(?:\/|$)/);
+            if (match) {
+                const id = match[1];
+                return {
+                    thumbnailUrl: `https://${hostname}/thumbnail/${id}.jpg`,
+                };
+            }
+        }
+        
+        return undefined;
+    }
+
     private async resolveSource(source: AllMangaSource, audio: TranslationType): Promise<StreamLink[]> {
         const sourceUrl = String(source.sourceUrl || '');
         if (!sourceUrl) return [];
@@ -538,6 +596,7 @@ export class AllMangaScraper {
                 directUrl: isIframe ? undefined : sourceUrl,
                 isHls: /\.m3u8(?:[?#]|$)/i.test(sourceUrl),
                 referer: ALLMANGA_REFERER,
+                thumbnails: this.extractThumbnails(sourceUrl),
             }];
         }
 
@@ -560,6 +619,7 @@ export class AllMangaScraper {
                     directUrl: finalUrl,
                     isHls: /\.m3u8(?:[?#]|$)/i.test(finalUrl),
                     referer: /(^|\.)googlevideo\.com$/i.test(new URL(finalUrl).hostname) ? 'https://www.youtube.com' : ALLMANGA_REFERER,
+                    thumbnails: this.extractThumbnails(finalUrl),
                 }];
             }
 
@@ -583,6 +643,7 @@ export class AllMangaScraper {
                         directUrl: url,
                         isHls: /\.m3u8(?:[?#]|$)/i.test(url),
                         referer: ALLMANGA_REFERER,
+                        thumbnails: this.extractThumbnails(url),
                     };
                 });
         } catch {
@@ -656,12 +717,24 @@ export class AllMangaScraper {
         });
     }
 
-    async getLinksForShowId(showId: string, episodeNumber: number): Promise<StreamLink[]> {
+    async getLinksForShowId(showId: string, episodeNumber: number, title?: string): Promise<StreamLink[]> {
         if (!showId || !Number.isFinite(episodeNumber) || episodeNumber <= 0) return [];
 
         const allLinks: StreamLink[] = [];
         for (const audio of ['sub', 'dub'] as const) {
-            const sources = await this.getEpisodeSources(showId, episodeNumber, audio);
+            let sources = await this.getEpisodeSources(showId, episodeNumber, audio);
+            
+            // Fallback to title search if the current showId doesn't have this audio track (common for sub/dub split shows)
+            if (sources.length === 0 && title) {
+                const cleanTitle = String(title || '').trim();
+                if (cleanTitle) {
+                    const altShow = await this.resolveShow(cleanTitle, audio, episodeNumber);
+                    if (altShow?._id && altShow._id !== showId) {
+                        sources = await this.getEpisodeSources(altShow._id, episodeNumber, audio);
+                    }
+                }
+            }
+
             const orderedSources = sources
                 .filter((source) => source?.sourceUrl)
                 .sort((a, b) => {
@@ -791,20 +864,32 @@ export class AllMangaScraper {
             1
         );
 
+        const animetsuThumbnailsPromise = this.getAnimetsuEpisodeThumbnails(show);
+        
         const infos: AllMangaEpisodeInfo[] = [];
         const chunkSize = 100;
+        const tasks = [];
         for (let start = 1; start <= total; start += chunkSize) {
             const end = Math.min(total, start + chunkSize - 1);
-            const payload = await this.gql<{ data?: { episodeInfos?: AllMangaEpisodeInfo[] } }>({
-                showId,
-                episodeNumStart: start,
-                episodeNumEnd: end,
-            }, EPISODE_INFOS_GQL);
-            const chunk = Array.isArray(payload?.data?.episodeInfos) ? payload.data.episodeInfos : [];
-            infos.push(...chunk);
+            tasks.push(() =>
+                this.gql<{ data?: { episodeInfos?: AllMangaEpisodeInfo[] } }>({
+                    showId,
+                    episodeNumStart: start,
+                    episodeNumEnd: end,
+                }, EPISODE_INFOS_GQL)
+            );
+        }
+        
+        // Execute in batches of 5 to avoid triggering rate limits
+        for (let i = 0; i < tasks.length; i += 5) {
+            const batch = await Promise.all(tasks.slice(i, i + 5).map(task => task()));
+            for (const payload of batch) {
+                const chunk = Array.isArray(payload?.data?.episodeInfos) ? payload.data.episodeInfos : [];
+                infos.push(...chunk);
+            }
         }
 
-        const animetsuThumbnails = await this.getAnimetsuEpisodeThumbnails(show);
+        const animetsuThumbnails = await animetsuThumbnailsPromise;
         const episodes = infos
             .map((info) => this.mapEpisodeInfo(showId, info, fallbackSnapshot, animetsuThumbnails.get(Number(info.episodeIdNum || 0))))
             .filter(Boolean) as Episode[];

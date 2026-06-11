@@ -1190,7 +1190,14 @@ export const animeService = {
     },
 
     // Get stream links from scraper
-    async getStreams(animeSession: string, episodeSession: string, options?: { provider?: string; title?: string; episodeNumber?: number }) {
+    async getStreams(animeSession: string, episodeSession: string, options?: {
+        provider?: string;
+        title?: string;
+        titles?: string[];
+        year?: string | number;
+        format?: string;
+        episodeNumber?: number;
+    }) {
         const provider = String(options?.provider || 'auto').trim().toLowerCase() || 'auto';
         const cacheKey = getStreamCacheKey(animeSession, episodeSession, provider);
         const cached = getCachedStream(cacheKey);
@@ -1211,6 +1218,9 @@ export const animeService = {
                         provider,
                         ...(options?.episodeNumber ? { ep_number: options.episodeNumber } : {}),
                         ...(options?.title ? { title: options.title } : {}),
+                        ...(Array.isArray(options?.titles) && options.titles.length > 0 ? { alt_titles: options.titles.join('|') } : {}),
+                        ...(options?.year ? { year: options.year } : {}),
+                        ...(options?.format ? { format: options.format } : {}),
                     },
                 });
                 const normalized = Array.isArray(data)

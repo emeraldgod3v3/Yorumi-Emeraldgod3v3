@@ -666,8 +666,21 @@ router.get('/streams', async (req, res) => {
         }
         const provider = String(req.query.provider || 'auto').trim().toLowerCase();
         const title = String(req.query.title || '').trim();
+        const altTitles = String(req.query.alt_titles || '')
+            .split('|')
+            .map((value) => value.trim())
+            .filter(Boolean);
+        const year = String(req.query.year || '').trim();
+        const format = String(req.query.format || '').trim();
         const episodeNumber = Number(req.query.ep_number || 0) || undefined;
-        const result = await scraperService.getStreams(animeSession, epSession, { provider, title, episodeNumber });
+        const result = await scraperService.getStreams(animeSession, epSession, {
+            provider,
+            title,
+            titles: altTitles,
+            year,
+            format,
+            episodeNumber,
+        });
         const hostBase = getPublicBase(req);
         const normalized = Array.isArray(result)
             ? result.map((item: any) => {

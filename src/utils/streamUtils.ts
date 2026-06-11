@@ -18,7 +18,13 @@ export const getMappedQuality = (q: string): string => {
 export const getStreamData = async (
     episode: Episode,
     scraperSession: string,
-    options?: { provider?: string; title?: string }
+    options?: {
+        provider?: string;
+        title?: string;
+        titles?: string[];
+        year?: string | number;
+        format?: string;
+    }
 ): Promise<StreamLink[]> => {
     const data = await animeService.getStreams(scraperSession, episode.session, {
         ...options,

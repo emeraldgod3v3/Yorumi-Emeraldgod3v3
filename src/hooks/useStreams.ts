@@ -20,17 +20,27 @@ const getSourceLabel = (stream: StreamLink) => {
     if (key === 'kwik') return 'Kwik';
     if (key === 'hls') return 'HLS';
     if (key === 'embed') return 'Embed';
-    return key.replace(/(^|\s|-)\w/g, (match) => match.toUpperCase());
+    return key
+        .replace(/[-_]+/g, ' ')
+        .replace(/\b\w/g, (match) => match.toUpperCase());
 };
 
-export type StreamServerKey = 'auto' | 'allmanga';
+type StreamLookupMetadata = {
+    titlesKey?: string;
+    year?: string | number;
+    format?: string;
+};
+
+export type StreamServerKey = 'auto' | 'allmanga' | 'reanime';
 
 export const STREAM_SERVER_OPTIONS: Array<{ key: StreamServerKey; label: string }> = [
     { key: 'auto', label: 'Default' },
     { key: 'allmanga', label: 'AllManga' },
+    { key: 'reanime', label: 'ReAnime' },
 ];
 
-export function useStreams(scraperSession: string | null, animeTitle?: string) {
+
+export function useStreams(scraperSession: string | null, animeTitle?: string, animeMetadata?: StreamLookupMetadata) {
     const [currentEpisode, setCurrentEpisode] = useState<Episode | null>(null);
     const [allStreams, setAllStreams] = useState<StreamLink[]>([]);
     const [streams, setStreams] = useState<StreamLink[]>([]);
@@ -76,12 +86,21 @@ export function useStreams(scraperSession: string | null, animeTitle?: string) {
             + quality;
     }, []);
 
+    const metadataYear = animeMetadata?.year;
+    const metadataFormat = animeMetadata?.format;
+    const metadataTitlesKey = animeMetadata?.titlesKey || '';
     const ensureStreamData = useCallback((episode: Episode): Promise<StreamLink[]> => {
         const activeSession = normalizeDirectScraperSession(scraperSession);
         if (!activeSession) return Promise.resolve([]);
         const cacheKey = `${selectedServer}:${episode.session}`;
         if (!streamCache.current.has(cacheKey)) {
-            const promise = getStreamData(episode, activeSession, { provider: selectedServer, title: animeTitle })
+            const promise = getStreamData(episode, activeSession, {
+                provider: selectedServer,
+                title: animeTitle,
+                titles: metadataTitlesKey ? metadataTitlesKey.split('|') : undefined,
+                year: metadataYear,
+                format: metadataFormat,
+            })
                 .then((data) => {
                     if (!Array.isArray(data) || data.length === 0) {
                         streamCache.current.delete(cacheKey);
@@ -97,7 +116,7 @@ export function useStreams(scraperSession: string | null, animeTitle?: string) {
             streamCache.current.set(cacheKey, promise);
         }
         return streamCache.current.get(cacheKey)!;
-    }, [scraperSession, selectedServer, animeTitle]);
+    }, [scraperSession, selectedServer, animeTitle, metadataTitlesKey, metadataYear, metadataFormat]);
 
     const prefetchStream = useCallback((episode: Episode) => {
         if (scraperSession) ensureStreamData(episode);
@@ -180,6 +199,7 @@ export function useStreams(scraperSession: string | null, animeTitle?: string) {
                 setIsAutoQuality(true);
             } else {
                 streamCache.current.delete(episode.session);
+                streamCache.current.delete(`${selectedServer}:${episode.session}`);
             }
         } catch (e) {
             if (activeLoadRequestRef.current !== requestId) {
@@ -263,11 +283,16 @@ export function useStreams(scraperSession: string | null, animeTitle?: string) {
     }, [scraperSession, selectedServer]);
 
     const handleServerChange = useCallback((server: StreamServerKey) => {
+        const shouldForceReload = server === selectedServer;
         setSelectedServer(server);
         setSelectedStreamIndex(0);
         setIsAutoQuality(true);
         setShowQualityMenu(false);
-    }, []);
+        if (shouldForceReload && currentEpisode) {
+            streamCache.current.delete(`${server}:${currentEpisode.session}`);
+            loadStream(currentEpisode);
+        }
+    }, [currentEpisode, loadStream, selectedServer]);
 
     return {
         // State

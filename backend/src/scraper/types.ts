@@ -39,4 +39,13 @@ export interface StreamLink {
     audioLanguage?: string;
     isHls: boolean;
     subtitles?: { url: string; lang: string; default?: boolean }[];
+    thumbnails?: ThumbnailInfo;
+}
+
+export interface ThumbnailInfo {
+    spriteUrl?: string;
+    spriteGrid?: { columns: number; rows: number };
+    thumbnailUrl?: string;
+    interval?: number;
+    vttUrl?: string;
 }

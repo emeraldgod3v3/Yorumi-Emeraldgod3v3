@@ -31,13 +31,7 @@ export default function EpisodeList({
         .filter(num => num > parseFloat(currentEpNumber))
         .sort((a, b) => a - b)[0];
 
-    const fallbackPreviewImage = getDisplayImageUrl(
-        anime?.anilist_banner_image ||
-        anime?.images?.jpg?.large_image_url ||
-        anime?.images?.jpg?.image_url ||
-        ''
-    );
-    const getPreviewImage = (ep: Episode) => getDisplayImageUrl(ep.snapshot || '') || fallbackPreviewImage;
+    const getPreviewImage = (ep: Episode, meta: any) => getDisplayImageUrl(ep.snapshot || meta?.thumbnail || anime?.images?.jpg?.large_image_url || anime?.images?.jpg?.image_url || anime?.anilist_cover_image || '');
 
     // Filter + sort episodes
     const filteredEpisodes = episodes
@@ -201,7 +195,7 @@ export default function EpisodeList({
                             const meta = getEpisodeMeta(ep);
                             const cleanTitle = ep.title && ep.title.trim().toLowerCase() !== 'untitled' ? ep.title : null;
                             const displayTitle = meta?.title?.replace(/^Episode \d+[\s-]*:?/i, '').trim() || cleanTitle || `Episode ${ep.episodeNumber}`;
-                            const previewImage = getPreviewImage(ep);
+                            const previewImage = getPreviewImage(ep, meta);
 
                             return (
                                 <button
@@ -228,11 +222,13 @@ export default function EpisodeList({
                                                         className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                                                         loading="lazy"
                                                         onError={(event) => {
-                                                            if (fallbackPreviewImage && event.currentTarget.src !== fallbackPreviewImage) {
-                                                                event.currentTarget.src = fallbackPreviewImage;
-                                                                return;
+                                                            const fallback = anime?.images?.jpg?.large_image_url || anime?.images?.jpg?.image_url || anime?.anilist_cover_image;
+                                                            if (fallback && !event.currentTarget.dataset.failed) {
+                                                                event.currentTarget.dataset.failed = 'true';
+                                                                event.currentTarget.src = fallback;
+                                                            } else {
+                                                                event.currentTarget.style.display = 'none';
                                                             }
-                                                            event.currentTarget.style.display = 'none';
                                                         }}
                                                     />
                                                 ) : (
