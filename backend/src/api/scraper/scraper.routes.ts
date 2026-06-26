@@ -381,6 +381,33 @@ const patchEmbedHtml = (req: any, html: string, origin: string, embedReferer: st
 };
 
 const sanitizeCookie = (raw: string) => String(raw || '').replace(/[\r\n]/g, '').trim();
+
+const BLOCKED_HOST_PATTERNS = [
+    /^localhost$/i,
+    /^127\./,
+    /^10\./,
+    /^172\.(1[6-9]|2\d|3[01])\./,
+    /^192\.168\./,
+    /^169\.254\./,
+    /^0\./,
+    /^\[::1\]/,
+    /^\[fc/i,
+    /^\[fd/i,
+    /^\[fe80:/i,
+    /^metadata\.google\.internal$/i,
+];
+
+const isBlockedUrl = (url: string): boolean => {
+    try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.toLowerCase();
+        if (BLOCKED_HOST_PATTERNS.some((p) => p.test(host))) return true;
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true;
+        return false;
+    } catch {
+        return true;
+    }
+};
 const normalizeEpisodeSession = (animeSessionRaw: string, raw: string) => {
     const source = String(raw || '').trim();
     if (!source) return source;
@@ -800,10 +827,17 @@ router.get('/embed', async (req, res) => {
         return res.status(400).send('Missing url parameter');
     }
 
+    if (isBlockedUrl(targetUrl)) {
+        return res.status(403).send('Blocked destination');
+    }
+
     try {
         let target = new URL(targetUrl);
         if (/\/api\/scraper\/embed$/i.test(target.pathname)) {
             targetUrl = String(target.searchParams.get('url') || '').trim();
+            if (isBlockedUrl(targetUrl)) {
+                return res.status(403).send('Blocked destination');
+            }
             target = new URL(targetUrl);
         }
 
@@ -949,6 +983,10 @@ router.get('/proxy', async (req, res) => {
 
     if (!targetUrl) {
         return res.status(400).send('Missing url parameter');
+    }
+
+    if (isBlockedUrl(targetUrl)) {
+        return res.status(403).send('Blocked destination');
     }
 
     try {
