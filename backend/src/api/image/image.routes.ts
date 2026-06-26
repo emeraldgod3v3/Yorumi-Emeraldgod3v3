@@ -20,9 +20,8 @@ router.get('/proxy', async (req, res) => {
         const allowedDomains = ['mangakatana.com', 's4.anilist.co', 'media.kitsu.io', 'allanime.day', 'allmanga.to', 'wp.youtube-anime.com'];
         const urlObj = new URL(decodedUrl);
         
-        if (!allowedDomains.includes(urlObj.hostname) && !urlObj.hostname.endsWith('mangakatana.com')) {
-           // We'll allow it for now but log it
-           console.log(`[Image Proxy] Proxying non-allowlisted domain: ${urlObj.hostname}`);
+        if (!allowedDomains.some((d) => urlObj.hostname === d || urlObj.hostname.endsWith(`.${d}`))) {
+           return res.status(400).send(`Domain not allowed: ${urlObj.hostname}`);
         }
 
         const response = await axios.get(decodedUrl, {
