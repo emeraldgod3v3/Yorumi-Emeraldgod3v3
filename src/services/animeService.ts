@@ -6,7 +6,7 @@ import { db, isFirebaseEnabled } from "./firebase";
 import { API_BASE } from "../config/api";
 import { getDisplayImageUrl } from "../utils/image";
 import { isSupportedScraperSessionId } from "../utils/animeNavigation";
-import { setLocalStorageWithCleanup } from "../utils/localStorageQuota";
+import { createServiceCache } from "../utils/serviceCache";
 
 const apiClient = axios.create({
     baseURL: API_BASE,
@@ -326,68 +326,23 @@ const isReleasedTrendingAnime = (anime: Anime) => {
 };
 
 // Simple in-memory cache
-const cache = new Map<string, { data: any, timestamp: number }>();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const DETAIL_CACHE_TTL = 15 * 60 * 1000; // 15 minutes for anime details + episodes
-const streamCache = new Map<string, { data: any, timestamp: number }>();
 const STREAM_CACHE_TTL = 20 * 60 * 1000; // 20 minutes
-const mappingCache = new Map<string, string>();
-const scraperSearchCache = new Map<string, { data: any[]; timestamp: number }>();
 const SCRAPER_SEARCH_TTL = 5 * 60 * 1000;
 const AZ_LIST_CACHE_TTL = 10 * 60 * 1000;
 const PERSISTED_CACHE_PREFIX = 'yorumi_api_cache_v6';
 const STREAM_CACHE_VERSION = 'v9';
 const PERSISTED_STREAM_CACHE_PREFIX = `yorumi_stream_cache_${STREAM_CACHE_VERSION}`;
 
-const readPersistedCache = (key: string, ttl: number) => {
-    try {
-        const raw = localStorage.getItem(`${PERSISTED_CACHE_PREFIX}:${key}`);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw) as { data: any; timestamp: number };
-        if (!parsed || typeof parsed.timestamp !== 'number') return null;
-        if (Date.now() - parsed.timestamp > ttl) {
-            localStorage.removeItem(`${PERSISTED_CACHE_PREFIX}:${key}`);
-            return null;
-        }
-        return parsed.data;
-    } catch {
-        return null;
-    }
-};
+const { memoryCache: cache, getCached, setCached: setCache, inFlightRequests } = createServiceCache({
+    prefix: PERSISTED_CACHE_PREFIX,
+    useCleanupWrite: true,
+});
 
-const writePersistedCache = (key: string, data: any, timestamp: number) => {
-    try {
-        setLocalStorageWithCleanup(
-            `${PERSISTED_CACHE_PREFIX}:${key}`,
-            JSON.stringify({ data, timestamp })
-        );
-    } catch {
-        // Ignore quota/storage errors.
-    }
-};
-
-const getCached = (key: string, customTtl?: number) => {
-    if (cache.has(key)) {
-        const entry = cache.get(key)!;
-        const ttl = customTtl ?? CACHE_TTL;
-        if (Date.now() - entry.timestamp < ttl) {
-            return entry.data;
-        }
-        cache.delete(key);
-    }
-    const persisted = readPersistedCache(key, customTtl ?? CACHE_TTL);
-    if (persisted) {
-        cache.set(key, { data: persisted, timestamp: Date.now() });
-        return persisted;
-    }
-    return null;
-};
-
-const setCache = (key: string, data: any, _customTtl?: number) => {
-    const timestamp = Date.now();
-    cache.set(key, { data, timestamp });
-    writePersistedCache(key, data, timestamp);
-};
+const streamCache = new Map<string, { data: any, timestamp: number }>();
+const mappingCache = new Map<string, string>();
+const scraperSearchCache = new Map<string, { data: any[]; timestamp: number }>();
 
 const clearCacheEntry = (key: string) => {
     cache.delete(key);
@@ -487,8 +442,6 @@ const fetchJsonWithTimeout = async (url: string, init: RequestInit = {}, timeout
     }
 };
 
-// Track in-flight requests to prevent duplicates
-const inFlightRequests = new Map<string, Promise<any>>();
 export const animeService = {
     peekAnimeDetailsCache(id: number | string) {
         return getCached(getAnimeDetailsCacheKey(id), DETAIL_CACHE_TTL);
@@ -570,7 +523,7 @@ export const animeService = {
 
     peekTopAnime(page: number = 1, format?: string) {
         const cacheKey = `top-anime-${page}-${format ?? 'all'}`;
-        return getCached(cacheKey);
+        return getCached(cacheKey, CACHE_TTL);
     },
 
     prefetchTopAnimeFormats() {
@@ -739,7 +692,7 @@ export const animeService = {
         const normalizedQuery = query.trim().toLowerCase();
         const cacheKey = `scraper-search:${normalizedQuery}`;
 
-        let items = getCached(cacheKey) as any[] | null;
+        let items = getCached(cacheKey, CACHE_TTL) as any[] | null;
         if (!items) {
             const mem = scraperSearchCache.get(cacheKey);
             if (mem && Date.now() - mem.timestamp < SCRAPER_SEARCH_TTL) {

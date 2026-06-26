@@ -5,6 +5,7 @@ import { useTitleLanguage } from '../../../context/TitleLanguageContext';
 import { getDisplayTitle } from '../../../utils/titleLanguage';
 import { getDisplayImageUrl } from '../../../utils/image';
 import { cardItemVariants, pressMotion } from '../../../utils/motion';
+import { useCardTilt } from '../../../hooks/useCardTilt';
 
 interface AnimeCardProps {
     anime: Anime;
@@ -25,10 +26,7 @@ const AnimeCard: React.FC<AnimeCardProps> = ({
     disableTilt = false
 }) => {
     const { language } = useTitleLanguage();
-    const cardRef = React.useRef<HTMLDivElement>(null);
-    const [rotation, setRotation] = React.useState({ x: 0, y: 0 });
-    const [glare, setGlare] = React.useState({ x: 50, y: 50, opacity: 0 });
-    const [isHovered, setIsHovered] = React.useState(false);
+    const { cardRef, glare, isHovered, setIsHovered, handleMouseMove, handleMouseLeave, tiltStyle } = useCardTilt(disableTilt);
     const [popupSide, setPopupSide] = React.useState<'left' | 'right'>('right');
 
     const isUnreleased = anime.status === 'NOT_YET_RELEASED';
@@ -59,7 +57,7 @@ const AnimeCard: React.FC<AnimeCardProps> = ({
         const gap = 16;
 
         setPopupSide(rect.right + gap + popupWidth > availableRight ? 'left' : 'right');
-    }, []);
+    }, [cardRef]);
 
     React.useEffect(() => {
         if (!isHovered) return;
@@ -71,40 +69,6 @@ const AnimeCard: React.FC<AnimeCardProps> = ({
             window.removeEventListener('resize', updatePopupSide);
         };
     }, [isHovered, updatePopupSide]);
-
-    const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-        if (disableTilt) {
-            return;
-        }
-        if (!cardRef.current) return;
-
-        const rect = cardRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const centerX = rect.width / 2;
-        const centerY = rect.height / 2;
-
-        const rotateX = ((y - centerY) / centerY) * -12;
-        const rotateY = ((x - centerX) / centerX) * 12;
-
-        setRotation({ x: rotateX, y: rotateY });
-        setGlare({
-            x: (x / rect.width) * 100,
-            y: (y / rect.height) * 100,
-            opacity: 1
-        });
-    };
-
-    const handleMouseLeave = () => {
-        setIsHovered(false);
-
-        if (disableTilt) {
-            return;
-        }
-
-        setRotation({ x: 0, y: 0 });
-        setGlare(prev => ({ ...prev, opacity: 0 }));
-    };
 
     return (
         <m.div
@@ -127,15 +91,7 @@ const AnimeCard: React.FC<AnimeCardProps> = ({
         >
             <div
                 className="relative aspect-[2/3] rounded-lg overflow-visible mb-3 shadow-lg ring-0 outline-none transition-all duration-75 ease-out"
-                style={{
-                    transform: disableTilt
-                        ? 'none'
-                        : `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg) scale3d(${isHovered ? 1.05 : 1}, ${isHovered ? 1.05 : 1}, 1)`,
-                    transformStyle: 'preserve-3d',
-                    boxShadow: isHovered
-                        ? '0 20px 40px -5px rgba(0,0,0,0.4), 0 10px 20px -5px rgba(0,0,0,0.2)'
-                        : 'none'
-                }}
+                style={tiltStyle}
             >
                 <div className="relative h-full w-full overflow-hidden rounded-lg">
                     <div

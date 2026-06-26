@@ -4,6 +4,7 @@ import type { Manga } from '../../../types/manga';
 import { useTitleLanguage } from '../../../context/TitleLanguageContext';
 import { getDisplayTitle } from '../../../utils/titleLanguage';
 import { cardItemVariants, pressMotion } from '../../../utils/motion';
+import { useCardTilt } from '../../../hooks/useCardTilt';
 
 interface MangaCardProps {
     manga: Manga;
@@ -17,10 +18,7 @@ interface MangaCardProps {
 
 const MangaCard: React.FC<MangaCardProps> = ({ manga, onClick, onReadClick, onMouseEnter, inList, onToggleList, disableTilt = false }) => {
     const { language } = useTitleLanguage();
-    const cardRef = React.useRef<HTMLDivElement>(null);
-    const [rotation, setRotation] = React.useState({ x: 0, y: 0 });
-    const [glare, setGlare] = React.useState({ x: 50, y: 50, opacity: 0 });
-    const [isHovered, setIsHovered] = React.useState(false);
+    const { cardRef, glare, setIsHovered, handleMouseMove: handleTiltMove, handleMouseLeave, tiltStyle } = useCardTilt(disableTilt);
     const normalizedStatus = String(manga.status || '').toUpperCase();
     const isOngoing = normalizedStatus === 'RELEASING' || normalizedStatus === 'PUBLISHING' || normalizedStatus === 'ONGOING';
     const displayTitle = getDisplayTitle(manga as unknown as Record<string, unknown>, language);
@@ -33,39 +31,8 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, onClick, onReadClick, onMo
             : null;
 
     const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-        if (disableTilt) {
-            onMouseEnter?.(manga);
-            return;
-        }
-        if (!cardRef.current) return;
-        const rect = cardRef.current.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
-        const centerX = rect.width / 2;
-        const centerY = rect.height / 2;
-
-        // Calculate rotation (max 12 degrees)
-        const rotateX = ((y - centerY) / centerY) * -12;
-        const rotateY = ((x - centerX) / centerX) * 12;
-
-        setRotation({ x: rotateX, y: rotateY });
-        setGlare({
-            x: (x / rect.width) * 100,
-            y: (y / rect.height) * 100,
-            opacity: 1
-        });
-
+        handleTiltMove(e);
         onMouseEnter?.(manga);
-    };
-
-    const handleMouseLeave = () => {
-        if (disableTilt) {
-            setIsHovered(false);
-            return;
-        }
-        setRotation({ x: 0, y: 0 });
-        setGlare(prev => ({ ...prev, opacity: 0 }));
-        setIsHovered(false);
     };
 
     return (
@@ -88,15 +55,7 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, onClick, onReadClick, onMo
             {/* Image Container with 3D Transform */}
             <div
                 className="relative aspect-[2/3] rounded-lg overflow-hidden mb-3 shadow-lg ring-0 outline-none transition-all duration-75 ease-out"
-                style={{
-                    transform: disableTilt
-                        ? 'none'
-                        : `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg) scale3d(${isHovered ? 1.05 : 1}, ${isHovered ? 1.05 : 1}, 1)`,
-                    transformStyle: 'preserve-3d',
-                    boxShadow: isHovered
-                        ? '0 20px 40px -5px rgba(0,0,0,0.4), 0 10px 20px -5px rgba(0,0,0,0.2)'
-                        : 'none'
-                }}
+                style={tiltStyle}
             >
                 {/* Glare Overlay */}
                 <div

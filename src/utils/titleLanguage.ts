@@ -3,7 +3,7 @@ import type { TitleLanguage } from '../context/TitleLanguageContext';
 const isNonEmptyString = (value: unknown): value is string =>
     typeof value === 'string' && value.trim().length > 0;
 
-const isMostlyLatin = (value: string): boolean => {
+export const isMostlyLatin = (value: string): boolean => {
     const normalized = value.replace(/[\s\d\p{P}]/gu, '');
     if (!normalized) return false;
     const latinChars = (normalized.match(/\p{Script=Latin}/gu) || []).length;
