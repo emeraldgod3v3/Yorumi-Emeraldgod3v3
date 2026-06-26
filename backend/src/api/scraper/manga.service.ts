@@ -83,7 +83,10 @@ const scoreSearchResult = (candidate: any, titleCandidates: string[]) => {
 };
 
 async function resolveScraperIdFromAniList(anilistId: string, media: any): Promise<string | null> {
-    const mapping = await mappingService.getMapping(anilistId).catch(() => null);
+    const mapping = await mappingService.getMapping(anilistId).catch((err) => {
+        console.warn(`[resolveScraperIdFromAniList] Mapping lookup failed for AniList ${anilistId}:`, err?.message || err);
+        return null;
+    });
     if (mapping?.id) {
         return mapping.id;
     }
@@ -95,9 +98,14 @@ async function resolveScraperIdFromAniList(anilistId: string, media: any): Promi
 
     for (const title of titleCandidates.slice(0, 6)) {
         const resolveCacheKey = `${MANGA_RESOLVE_CACHE_PREFIX}${normalizeTitle(title)}`;
-        const cached = await cacheGet<string>(resolveCacheKey).catch(() => null);
+        const cached = await cacheGet<string>(resolveCacheKey).catch((err) => {
+            console.warn(`[resolveScraperIdFromAniList] Cache read failed for "${title}":`, err?.message || err);
+            return null;
+        });
         if (cached) {
-            await mappingService.saveMapping(anilistId, cached, title).catch(() => undefined);
+            await mappingService.saveMapping(anilistId, cached, title).catch((err) => {
+                console.warn(`[resolveScraperIdFromAniList] Mapping save failed for AniList ${anilistId}:`, err?.message || err);
+            });
             return cached;
         }
 
@@ -112,8 +120,12 @@ async function resolveScraperIdFromAniList(anilistId: string, media: any): Promi
 
         const best = ranked[0];
         if (best && best.score >= 60) {
-            await cacheSet(resolveCacheKey, best.item.id, 7 * 24 * 60 * 60).catch(() => undefined);
-            await mappingService.saveMapping(anilistId, best.item.id, best.item.title || title).catch(() => undefined);
+            await cacheSet(resolveCacheKey, best.item.id, 7 * 24 * 60 * 60).catch((err) => {
+                console.warn(`[resolveScraperIdFromAniList] Cache write failed for "${title}":`, err?.message || err);
+            });
+            await mappingService.saveMapping(anilistId, best.item.id, best.item.title || title).catch((err) => {
+                console.warn(`[resolveScraperIdFromAniList] Mapping save failed for AniList ${anilistId}:`, err?.message || err);
+            });
             return best.item.id;
         }
     }
@@ -137,7 +149,10 @@ export async function searchManga(query: string) {
         return cached.data;
     }
 
-    const redisCached = await cacheGet<any[]>(redisKey).catch(() => null);
+    const redisCached = await cacheGet<any[]>(redisKey).catch((err) => {
+        console.warn(`[searchManga] Redis cache read failed for "${query}":`, err?.message || err);
+        return null;
+    });
     if (redisCached && redisCached.length > 0) {
         console.log(`Search cache hit (redis) for: "${query}"`);
         searchCache.set(cacheKey, { data: redisCached, timestamp: now });
@@ -145,8 +160,8 @@ export async function searchManga(query: string) {
     }
 
     console.log(`Searching MangaKatana for: "${query}"`);
-    const mkResults = await mangakatana.searchManga(query).catch(err => {
-        console.error('MangaKatana Search Error:', err.message);
+    const mkResults = await mangakatana.searchManga(query).catch((err) => {
+        console.error(`MangaKatana Search Error for "${query}":`, err?.message || err);
         return [];
     });
 
@@ -220,7 +235,10 @@ export async function getMangaDetailsWithChapters(id: string): Promise<HydratedM
         return cached.data;
     }
 
-    const redisCached = await cacheGet<HydratedMangaDetails>(redisKey).catch(() => null);
+    const redisCached = await cacheGet<HydratedMangaDetails>(redisKey).catch((err) => {
+        console.warn(`[getMangaDetailsWithChapters] Redis cache read failed for "${normalizedId}":`, err?.message || err);
+        return null;
+    });
     if (redisCached?.details) {
         hydratedDetailsCache.set(cacheKey, { data: redisCached, timestamp: now });
         console.log(`[Cache] Hydrated manga details hit (redis): ${normalizedId}`);
@@ -275,7 +293,10 @@ export async function getMangaDetailsWithChapters(id: string): Promise<HydratedM
 export async function getChapterList(id: string) {
     let realId = stripMangaKatanaPrefix(id);
     if (/^\d+$/.test(realId)) {
-        const mapping = await mappingService.getMapping(realId).catch(() => null);
+        const mapping = await mappingService.getMapping(realId).catch((err) => {
+            console.warn(`[getChapterList] Mapping lookup failed for "${realId}":`, err?.message || err);
+            return null;
+        });
         if (mapping?.id) {
             realId = mapping.id.startsWith('mk:') ? mapping.id.replace('mk:', '') : mapping.id;
         }
@@ -630,7 +651,7 @@ async function enrichAndCache(mangaList: any[]) {
                 }
             }
         } catch (e) {
-            // Ignore errors for individual items
+            console.warn(`[getEnrichedSpotlight] Enrichment failed for "${item.title}":`, (e as any)?.message || e);
         }
         return item;
     }));
@@ -691,7 +712,7 @@ async function enrichWithAniListPhotos(mangaList: any[]) {
                 }
             }
         } catch (e) {
-            // Silently fail for individual items
+            console.warn(`[getLatestManga] AniList enrichment failed for "${item.title}":`, (e as any)?.message || e);
         }
 
         // Fallback: If no AniList enrichment, proxy the original thumbnail to bypass hotlinking protection

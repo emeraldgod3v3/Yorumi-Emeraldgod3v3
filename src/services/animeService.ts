@@ -575,7 +575,9 @@ export const animeService = {
 
     prefetchTopAnimeFormats() {
         const formats: Array<string | undefined> = [undefined, 'MOVIE', 'TV', 'OVA', 'ONA', 'SPECIAL'];
-        Promise.allSettled(formats.map((format) => this.getTopAnime(1, format))).catch(() => undefined);
+        Promise.allSettled(formats.map((format) => this.getTopAnime(1, format))).catch((err) => {
+            console.warn('[prefetchTopAnimeFormats] Prefetch failed:', err?.message || err);
+        });
     },
 
     async getLatestUpdates(): Promise<LatestUpdatesResult> {
@@ -841,7 +843,9 @@ export const animeService = {
     },
 
     async prefetchAZList(letter: string, page: number = 1) {
-        await this.getAZList(letter, page).catch(() => undefined);
+        await this.getAZList(letter, page).catch((err) => {
+            console.warn(`[prefetchAZList] Prefetch failed for letter="${letter}" page=${page}:`, err?.message || err);
+        });
     },
 
     // Get anime details from AniList
@@ -1105,7 +1109,9 @@ export const animeService = {
                 const quickFirebase = await readFirebaseEpisodes(350);
                 if (quickFirebase) {
                     setCache(cacheKey, quickFirebase, DETAIL_CACHE_TTL);
-                    backendPromise.catch(() => undefined);
+                    backendPromise.catch((err) => {
+                        console.warn('[getEpisodes] Background backend refresh failed:', err?.message || err);
+                    });
                     return quickFirebase;
                 }
 
@@ -1335,7 +1341,9 @@ export const animeService = {
                 anime_session: animeSession,
                 ep_sessions: sessions,
             }),
-        }).catch(() => undefined);
+        }).catch((err) => {
+            console.warn('[prefetchStreams] Prefetch request failed:', err?.message || err);
+        });
     },
 
     // Get native AniList spotlight, scored from trending, seasonal, monthly, and popular pools.

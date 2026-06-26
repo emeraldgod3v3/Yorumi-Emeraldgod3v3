@@ -274,7 +274,7 @@ async function preWarmPopularLogos(): Promise<void> {
             const result = await getAnimeLogo(id);
             if (result.logo) warmedCount++;
         } catch (e) {
-            // Ignore errors, this is best-effort
+            console.warn(`[Fanart] Pre-warm failed for ID ${id}:`, (e as any)?.message || e);
         }
     }
 
