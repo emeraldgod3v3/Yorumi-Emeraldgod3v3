@@ -2,10 +2,6 @@
 app = "yorumi-emeraldgod3v3"
 primary_region = "sin"
 
-[build]
-  builder = "docker"
-  dockerfile = "./Dockerfile"
-
 [env]
   NODE_ENV = "production"
   PORT = "3001"
