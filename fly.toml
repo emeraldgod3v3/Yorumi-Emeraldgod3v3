@@ -1,6 +1,6 @@
 # Fly.io configuration for Yorumi
-app = "yorumi"
-primary_region = "sjc"
+app = "yorumi-emeraldgod3v3"
+primary_region = "sin"
 
 [build]
   builder = "docker"
@@ -29,21 +29,14 @@ primary_region = "sjc"
     hard_limit = 100
     soft_limit = 80
 
-  [[services.tcp_checks]]
-    interval = "15s"
-    timeout = "5s"
-    grace_period = "10s"
-
-[metrics]
-  port = 9090
-
-[checks]
-  [checks.status]
-    type = "http"
+  [[services.http_checks]]
     interval = "30s"
     timeout = "5s"
     grace_period = "10s"
     method = "get"
-    path = "/"
+    path = "/health"
     protocol = "http"
     expected_http_status = 200
+
+[metrics]
+  port = 9090
