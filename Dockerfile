@@ -1,47 +1,63 @@
-# Build frontend
-FROM node:18-alpine AS frontend-build
+# Multi-stage build for production
+FROM node:18-alpine AS deps
+
 WORKDIR /app
+
+# Copy package files
 COPY package*.json ./
+COPY backend/package*.json ./backend/
+
+# Install dependencies
 RUN npm install
+WORKDIR /app/backend
+RUN npm install
+WORKDIR /app
+
+# Build stage
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy from deps stage
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/backend/node_modules ./backend/node_modules
+
+# Copy source code
 COPY . .
+COPY backend/ backend/
+
+# Build frontend
 RUN npm run build
 
 # Build backend
-FROM node:18-alpine AS backend-build
-WORKDIR /backend
-COPY backend/package*.json ./
-RUN npm ci
-COPY backend/src ./src
-COPY backend/tsconfig.json ./
-COPY backend/scripts ./scripts
+WORKDIR /app/backend
 RUN npm run build
 
-# Production image
+# Production stage
 FROM node:18-alpine
+
 WORKDIR /app
 
-# Install dumb-init for proper signal handling
+# Install dumb-init for graceful shutdown
 RUN apk add --no-cache dumb-init
 
-# Copy backend dist and node_modules
-COPY --from=backend-build /backend/dist ./backend/dist
-COPY --from=backend-build /backend/node_modules ./backend/node_modules
-COPY backend/package*.json ./backend/
+# Copy built backend
+COPY --from=builder /app/backend/dist ./dist
+COPY --from=builder /app/backend/node_modules ./node_modules
+COPY --from=builder /app/backend/package.json ./
 
-# Copy frontend build output
-COPY --from=frontend-build /app/dist ./public
+# Copy built frontend
+COPY --from=builder /app/dist ./public
 
 # Set environment
 ENV NODE_ENV=production
 ENV PORT=3001
 
-# Expose port
 EXPOSE 3001
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD node -e "require('http').get('http://localhost:3001', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3001/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})" || exit 1
 
-# Use dumb-init to handle signals properly
 ENTRYPOINT ["/sbin/dumb-init", "--"]
-CMD ["node", "backend/dist/index.js"]
+CMD ["node", "dist/index.js"]
