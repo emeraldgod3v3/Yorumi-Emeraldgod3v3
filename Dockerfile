@@ -1,5 +1,5 @@
 # Multi-stage build for production
-FROM node:18-alpine AS deps
+FROM node:20-alpine AS deps
 
 WORKDIR /app
 
@@ -8,13 +8,13 @@ COPY package*.json ./
 COPY backend/package*.json ./backend/
 
 # Install dependencies
-RUN npm install
+RUN npm install --legacy-peer-deps
 WORKDIR /app/backend
-RUN npm install
+RUN npm install --legacy-peer-deps
 WORKDIR /app
 
 # Build stage
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -34,7 +34,7 @@ WORKDIR /app/backend
 RUN npm run build
 
 # Production stage
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
