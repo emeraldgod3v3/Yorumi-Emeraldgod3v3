@@ -672,7 +672,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
                     writeHomeCache('trending', tData.data);
                     preloadLogos(tData.data.map((a: Anime) => a.id || a.mal_id).filter(Boolean));
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) { console.error('[fetchTrending] Failed:', e); }
             finally { setTrendingLoading(false); }
         };
 
@@ -695,7 +695,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
                     }
                     preloadLogos(latestData.data.map((a: Anime) => a.id || a.mal_id).filter(Boolean));
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) { console.error('[fetchLatestUpdates] Failed:', e); }
             finally { setLatestUpdatesLoading(false); }
         };
 
@@ -714,7 +714,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
                     setPopularSeason(pData.data);
                     writeHomeCache('popular-season', pData.data);
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) { console.error('[fetchPopular] Failed:', e); }
             finally { setPopularSeasonLoading(false); }
         };
 
@@ -733,7 +733,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
                     setPopularMonth(pData.data);
                     writeHomeCache('popular-month', pData.data);
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) { console.error('[fetchPopularMonth] Failed:', e); }
             finally { setPopularMonthLoading(false); }
         };
 
@@ -760,7 +760,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
                 if (day?.data && week?.data && month?.data) {
                     writeHomeCache('top-ten', { day: day.data, week: week.data, month: month.data });
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) { console.error('[fetchTopTen] Failed:', e); }
             finally { setTopTenLoading(false); }
         };
 
@@ -1227,6 +1227,7 @@ export function AnimeProvider({ children }: { children: ReactNode }) {
                     return { session, eps: newEpisodes };
                 }
             } catch (e) {
+                console.warn('[fetchEpisodesForSession] Episode fetch failed for session:', session, (e as Error)?.message || e);
                 if (cacheKey) scraperSessionCache.current.delete(cacheKey);
             }
         }

@@ -132,7 +132,9 @@ const refreshSpotlightCache = async (): Promise<{ spotlight: any[] }> => {
 
     if (spotlight.length > 0) {
         spotlightMemCache = payload;
-        redis.set(SPOTLIGHT_REDIS_KEY, payload, { ex: CACHE_TTL_SECONDS }).catch(() => undefined);
+        redis.set(SPOTLIGHT_REDIS_KEY, payload, { ex: CACHE_TTL_SECONDS }).catch((err) => {
+            console.warn('[spotlight] Redis cache write failed:', err?.message || err);
+        });
     }
 
     return payload;
@@ -148,7 +150,9 @@ const getStaleSpotlight = async (): Promise<{ spotlight: any[] }> => {
             spotlightMemCache = redisHit;
             return redisHit;
         }
-    } catch { /* swallow */ }
+    } catch (err) {
+        console.warn('[getStaleSpotlight] Redis read failed, returning empty:', (err as any)?.message || err);
+    }
     return { spotlight: [] };
 };
 
@@ -163,7 +167,9 @@ const getStaleLatestUpdates = async (): Promise<{ latestEpisodes: any[] }> => {
             latestUpdatesMemCache = redisHit;
             return redisHit;
         }
-    } catch { /* swallow */ }
+    } catch (err) {
+        console.warn('[getStaleLatestUpdates] Redis read failed, returning empty:', (err as any)?.message || err);
+    }
     return { latestEpisodes: [] };
 };
 
@@ -175,7 +181,9 @@ const refreshLatestUpdatesCache = async (): Promise<{ latestEpisodes: any[] }> =
 
     if (latestEpisodes.length > 0) {
         latestUpdatesMemCache = payload;
-        redis.set(LATEST_REDIS_KEY, payload, { ex: CACHE_TTL_SECONDS }).catch(() => undefined);
+        redis.set(LATEST_REDIS_KEY, payload, { ex: CACHE_TTL_SECONDS }).catch((err) => {
+            console.warn('[latest-updates] Redis cache write failed:', err?.message || err);
+        });
     }
 
     return payload;
@@ -190,7 +198,9 @@ const getStaleNewReleases = async (key: string): Promise<{ data: any[]; paginati
             newReleasesMemCache.set(key, redisHit);
             return redisHit;
         }
-    } catch { /* swallow */ }
+    } catch (err) {
+        console.warn('[getStaleNewReleases] Redis read failed, returning null:', (err as any)?.message || err);
+    }
     return null;
 };
 
@@ -559,7 +569,9 @@ router.get('/recently-updated', async (req, res) => {
 
         if (listItems.length > 0) {
             newReleasesMemCache.set(cacheKey, payload);
-            redis.set(`${NEW_RELEASES_REDIS_PREFIX}:${cacheKey}`, payload, { ex: CACHE_TTL_SECONDS }).catch(() => undefined);
+            redis.set(`${NEW_RELEASES_REDIS_PREFIX}:${cacheKey}`, payload, { ex: CACHE_TTL_SECONDS }).catch((err) => {
+                console.warn(`[recently-updated] Redis cache write failed (key=${cacheKey}):`, err?.message || err);
+            });
         }
 
         res.json(payload);
@@ -590,7 +602,9 @@ router.get('/animekai/new-releases', async (req, res) => {
 
         if (listItems.length > 0) {
             newReleasesMemCache.set(cacheKey, payload);
-            redis.set(`${NEW_RELEASES_REDIS_PREFIX}:${cacheKey}`, payload, { ex: CACHE_TTL_SECONDS }).catch(() => undefined);
+            redis.set(`${NEW_RELEASES_REDIS_PREFIX}:${cacheKey}`, payload, { ex: CACHE_TTL_SECONDS }).catch((err) => {
+                console.warn(`[new-releases] Redis cache write failed (key=${cacheKey}):`, err?.message || err);
+            });
         }
 
         res.json(payload);

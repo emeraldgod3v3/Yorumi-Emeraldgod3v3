@@ -265,9 +265,13 @@ export function useEpisodeNotifications() {
             setNotifications(nextNotifications);
         };
 
-        loadNotifications().catch(() => undefined);
+        loadNotifications().catch((err) => {
+            console.warn('[useEpisodeNotifications] Failed to load notifications:', err?.message || err);
+        });
 
-        const handleStorageUpdate = () => loadNotifications().catch(() => undefined);
+        const handleStorageUpdate = () => loadNotifications().catch((err) => {
+            console.warn('[useEpisodeNotifications] Failed to reload notifications on storage update:', err?.message || err);
+        });
         window.addEventListener('yorumi-storage-updated', handleStorageUpdate);
         return () => {
             cancelled = true;

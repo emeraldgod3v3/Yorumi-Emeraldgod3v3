@@ -460,7 +460,7 @@ export function useManga() {
                             if (bestMatch) break;
                         }
                     } catch (e) {
-                        // Ignore search errors for individual titles
+                        console.warn('[useManga] Search failed for title variation:', (e as Error)?.message || e);
                     }
                 }
 

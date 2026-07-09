@@ -158,6 +158,7 @@ router.get('/latest', async (req: Request, res: Response) => {
         const results = await mangaService.getLatestManga(page);
         res.json({ data: results.data, pagination: { total_pages: results.totalPages } });
     } catch (error) {
+        console.error('Latest manga error:', error);
         res.status(500).json({ error: 'Failed to fetch latest manga' });
     }
 });
@@ -171,6 +172,7 @@ router.get('/new-manga', async (req: Request, res: Response) => {
         const results = await mangaService.getNewManga(page);
         res.json({ data: results.data, pagination: { total_pages: results.totalPages } });
     } catch (error) {
+        console.error('New manga error:', error);
         res.status(500).json({ error: 'Failed to fetch new manga' });
     }
 });
@@ -184,6 +186,7 @@ router.get('/directory', async (req: Request, res: Response) => {
         const results = await mangaService.getMangaDirectory(page);
         res.json({ data: results.data, pagination: { total_pages: results.totalPages } });
     } catch (error) {
+        console.error('Manga directory error:', error);
         res.status(500).json({ error: 'Failed to fetch manga directory' });
     }
 });

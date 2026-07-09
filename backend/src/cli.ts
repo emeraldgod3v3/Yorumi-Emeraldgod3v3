@@ -203,48 +203,44 @@ const downloadAnime = async (options: CliOptions) => {
 
     const scraper = new AllMangaScraper();
 
+    console.log(`Searching for "${options.title}"...`);
+    const results = await scraper.searchAnime(options.title);
+    const anime = Array.isArray(results) ? results[0] : null;
+    if (!anime) throw new Error(`No anime found for "${options.title}"`);
+
+    const animeTitle = String(anime.title || options.title).trim();
+    console.log(`Selected: ${animeTitle}`);
+
+    console.log(`Resolving episode ${options.episode} stream...`);
+    const streams = await scraper.getLinksForEpisodeNumber(animeTitle, options.episode);
+    const stream = (Array.isArray(streams) ? streams : []).sort((a, b) => scoreStream(b, options) - scoreStream(a, options))[0];
+    if (!stream) throw new Error('No downloadable stream was found for this episode');
+
+    const inputUrl = String(stream.directUrl || stream.url || '').trim();
+    if (!inputUrl) throw new Error('The selected stream did not include a playable URL');
+
+    const extension = /\.m3u8(?:[?#]|$)/i.test(inputUrl) || stream.isHls ? 'mp4' : path.extname(new URL(inputUrl).pathname).replace('.', '') || 'mp4';
+    const outputDir = path.resolve(options.outputDir);
+    await mkdir(outputDir, { recursive: true });
+    const outputPath = path.join(outputDir, `${sanitizeFilePart(animeTitle)} - E${String(options.episode).padStart(2, '0')}.${extension}`);
+
     try {
-        console.log(`Searching for "${options.title}"...`);
-        const results = await scraper.searchAnime(options.title);
-        const anime = Array.isArray(results) ? results[0] : null;
-        if (!anime) throw new Error(`No anime found for "${options.title}"`);
-
-        const animeTitle = String(anime.title || options.title).trim();
-        console.log(`Selected: ${animeTitle}`);
-
-        console.log(`Resolving episode ${options.episode} stream...`);
-        const streams = await scraper.getLinksForEpisodeNumber(animeTitle, options.episode);
-        const stream = (Array.isArray(streams) ? streams : []).sort((a, b) => scoreStream(b, options) - scoreStream(a, options))[0];
-        if (!stream) throw new Error('No downloadable stream was found for this episode');
-
-        const inputUrl = String(stream.directUrl || stream.url || '').trim();
-        if (!inputUrl) throw new Error('The selected stream did not include a playable URL');
-
-        const extension = /\.m3u8(?:[?#]|$)/i.test(inputUrl) || stream.isHls ? 'mp4' : path.extname(new URL(inputUrl).pathname).replace('.', '') || 'mp4';
-        const outputDir = path.resolve(options.outputDir);
-        await mkdir(outputDir, { recursive: true });
-        const outputPath = path.join(outputDir, `${sanitizeFilePart(animeTitle)} - E${String(options.episode).padStart(2, '0')}.${extension}`);
-
-        try {
-            await stat(outputPath);
-            if (!options.yes) {
-                throw new Error(`Output already exists: ${outputPath}. Re-run with -y to overwrite.`);
-            }
-        } catch (error: any) {
-            if (error?.code !== 'ENOENT') throw error;
+        await stat(outputPath);
+        if (!options.yes) {
+            throw new Error(`Output already exists: ${outputPath}. Re-run with -y to overwrite.`);
         }
-
-        console.log(`Downloading to ${outputPath}`);
-        if (/\.m3u8(?:[?#]|$)/i.test(inputUrl) || stream.isHls) {
-            await runFfmpeg(inputUrl, outputPath);
-        } else {
-            await downloadFile(inputUrl, outputPath);
-        }
-
-        console.log('Download complete.');
-    } catch (error) {
-        throw error;
+    } catch (error: any) {
+        if (error?.code !== 'ENOENT') throw error;
     }
+
+    console.log(`Downloading to ${outputPath}`);
+    if (/\.m3u8(?:[?#]|$)/i.test(inputUrl) || stream.isHls) {
+        await runFfmpeg(inputUrl, outputPath);
+    } else {
+        await downloadFile(inputUrl, outputPath);
+    }
+
+    console.log('Download complete.');
 };
 
 const main = async () => {
