@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -6,6 +7,11 @@ export default defineConfig({
   base: '/',
   envDir: './backend',
   plugins: [react()],
+  test: {
+    globals: true,
+    environment: 'node',
+    include: ['src/**/*.test.ts'],
+  },
   server: {
     proxy: {
       '/avatars': {
