@@ -1,15 +1,19 @@
 {
-  "experimentalServices": {
-    "frontend": {
-      "root": "frontend",
-      "routePrefix": "/",
-      "framework": "vite"
-    },
-    "backend": {
-      "root": "backend",
-      "routePrefix": "/api"
+  "functions": {
+    "api/index.ts": {
+      "maxDuration": 60
     }
   },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
